@@ -7,77 +7,77 @@
 - Nguyen Hoang Nam
 
 ## 📄 Brief Description
-**MoneyMinder** là một ứng dụng toàn diện dựa trên cơ sở dữ liệu được thiết kế để giúp các cá nhân **và các nhóm (gia đình, bạn cùng phòng)** theo dõi thu nhập, chi phí và mục tiêu tiết kiệm của họ một cách thông minh và linh hoạt.
+**MoneyMinder** is a comprehensive database-driven application designed to help individuals **and groups (families, roommates)** track their income, expenses, and savings goals intelligently and flexibly.
 
-**Vấn đề (The Problem):** Nhiều cá nhân gặp khó khăn trong việc duy trì sức khỏe tài chính do dữ liệu nằm rải rác, khó theo dõi các khoản chi chung trong nhóm, hay quên các khoản thanh toán định kỳ (subscription). Họ cũng thường bối rối khi đi du lịch nước ngoài với nhiều loại tiền tệ khác nhau, và không nhận ra kịp thời khi một hóa đơn (điện, nước) tăng cao bất thường.
+**The Problem:** Many individuals struggle to maintain financial health due to scattered data. They find it difficult to track shared expenses within a group, often forget recurring payments (subscriptions), get confused when dealing with multiple currencies while traveling abroad, and fail to timely notice when a bill (e.g., electricity, water) increases abnormally.
 
-**Giải pháp (The Solution):** Hệ thống này giải quyết vấn đề bằng cách cung cấp một nền tảng tập trung để ghi lại các giao dịch tài chính **(cá nhân và chung)**, hỗ trợ **đa tiền tệ** cho việc đi lại, tự động hóa các **khoản chi định kỳ**, và chủ động **cảnh báo** khi có dấu hiệu chi tiêu bất thường. Nó tận dụng cơ sở dữ liệu quan hệ mạnh mẽ để đảm bảo tính toàn vẹn của dữ liệu và cho phép truy vấn phức tạp về lịch sử tài chính.
+**The Solution:** This system solves these problems by providing a centralized platform to record financial transactions **(personal and shared)**. It supports **multi-currency** for travel, automates **recurring payments**, and proactively **alerts** users to signs of unusual spending. It leverages a robust relational database to ensure data integrity and allow for complex querying of financial history.
 
 ## 🎯 Functional & Non-functional Requirements
 
-### Functional Requirements (Yêu cầu chức năng)
+### Functional Requirements
 
-1.  **User Management (Quản lý người dùng):** Người dùng có thể đăng ký, đăng nhập và thiết lập hồ sơ (bao gồm chọn đồng tiền cơ sở mặc định, ví dụ: VND).
-2.  **Group Management (Quản lý nhóm):** Tạo nhóm chi tiêu chung, mời thành viên và xem danh sách thành viên.
-3.  **Transaction Management (Quản lý giao dịch):** CRUD thu nhập/chi phí. Chọn ngữ cảnh "Cá nhân" hoặc "Nhóm" khi tạo giao dịch.
-4.  **Multi-Currency & Travel Mode (Đa tiền tệ & Chế độ du lịch - TÍNH NĂNG MỚI):**
-    * Cho phép ghi lại giao dịch bằng ngoại tệ khác với đồng tiền cơ sở (ví dụ: chi tiêu USD khi đi du lịch trong khi tài khoản chính là VND).
-    * Người dùng nhập số tiền nguyên tệ và tỷ giá hối đoái tại thời điểm giao dịch. Hệ thống lưu trữ cả hai và quy đổi về đồng tiền chính để báo cáo.
-5.  **Subscription & Recurring Payments (Quản lý đăng ký & Thanh toán định kỳ - TÍNH NĂNG MỚI):**
-    * Người dùng thiết lập các khoản chi lặp lại (ví dụ: Netflix, tiền thuê nhà, tiền Internet) với tần suất nhất định (hàng tháng, hàng năm).
-    * Hệ thống tự động tạo giao dịch khi đến hạn hoặc gửi thông báo nhắc nhở người dùng xác nhận thanh toán.
-6.  **Unusual Spending Alerts (Cảnh báo chi tiêu bất thường - TÍNH NĂNG MỚI):**
-    * Hệ thống phân tích lịch sử chi tiêu cho các danh mục thiết yếu (ví dụ: Điện, Nước).
-    * Nếu một hóa đơn mới nhập vào cao hơn đáng kể so với mức trung bình lịch sử của người dùng đó (ví dụ: vượt quá 25%), hệ thống sẽ hiển thị cảnh báo để người dùng kiểm tra lại.
-7.  **Categorization & Budgeting (Phân loại & Ngân sách):** Liên kết giao dịch với danh mục và đặt giới hạn chi tiêu hàng tháng.
-8.  **Reporting (Báo cáo):** Tạo báo cáo tài chính tổng hợp, có thể lọc theo thời gian, danh mục, thành viên nhóm, hoặc loại tiền tệ.
+1.  **User Management:** Users can register, login, and set up their profiles (including selecting a default base currency, e.g., VND or USD).
+2.  **Group Management:** Users can create shared spending groups, invite members, and view member lists.
+3.  **Transaction Management:** CRUD (Create, Read, Update, Delete) income/expense records. Users select a "Personal" or "Group" context khi creating a transaction.
+4.  **Multi-Currency & Travel Mode (NEW FEATURE):**
+    * Allows recording transactions in foreign currencies different from the base currency (e.g., spending USD while traveling when the main account is in VND).
+    * The user enters the original currency amount and the exchange rate at the time of the transaction. The system stores both and converts to the base currency for reporting.
+5.  **Subscription & Recurring Payments (NEW FEATURE):**
+    * Users define recurring expenses (e.g., Netflix, Rent, Internet) with a specific frequency (monthly, yearly).
+    * The system automatically generates the transaction when due or sends a notification reminding the user to confirm the payment.
+6.  **Unusual Spending Alerts (NEW FEATURE):**
+    * The system analyzes spending history for essential categories (e.g., Electricity, Water).
+    * If a newly entered bill is significantly higher than that user's historical average (e.g., exceeds by 25%), the system displays an alert for the user to review.
+7.  **Categorization & Budgeting:** Link transactions to specific categories and set monthly spending limits.
+8.  **Reporting:** Generate comprehensive financial reports, filterable by time period, category, group member, or currency type.
 
-### Non-functional Requirements (Yêu cầu phi chức năng)
-1.  **Data Integrity:** Cơ sở dữ liệu phải thực thi nghiêm ngặt tính toàn vẹn tham chiếu (khóa ngoại) và các thuộc tính ACID.
-2.  **Security:** Mật khẩu được băm; ngăn chặn SQL injection. Đảm bảo quyền riêng tư dữ liệu giữa các nhóm và cá nhân.
-3.  **Performance:** Các truy vấn lịch sử và tính toán báo cáo phải nhanh chóng, ngay cả khi dữ liệu giao dịch tăng lên theo thời gian.
-4.  **Scalability:** Lược đồ DB cần được thiết kế để dễ dàng mở rộng cho các tính năng mới (ví dụ: tích hợp API tỷ giá hối đoái tự động trong tương lai).
+### Non-functional Requirements
+1.  **Data Integrity:** The database must strictly enforce referential integrity (foreign keys) and ACID properties.
+2.  **Security:** User passwords must be hashed; SQL injection prevention measures must be implemented. Ensure data privacy between different groups and individuals.
+3.  **Performance:** Historical queries and report calculations must be fast, even as transaction data grows over time.
+4.  **Scalability:** The DB schema should be designed to easily support future features (e.g., integrating an automatic exchange rate API later on).
 
 ## 🔄 System Workflow
 
-Biểu đồ dưới đây minh họa luồng người dùng cấp cao trong hệ thống MoneyMinder.
+The diagram below illustrates the high-level user flow within the MoneyMinder system.
 
-*(Lưu ý: Luồng công việc bên dưới là cơ bản. Các tính năng mới như "Chọn loại tiền tệ" sẽ xuất hiện trong bước "Add Transaction". Tính năng "Recurring Payments" sẽ là một tiến trình chạy nền tự động tạo giao dịch).*
+*(Note: The workflow below is basic. New features like "Select Currency" will appear during the "Add Transaction" step. The "Recurring Payments" feature will be a background process that automatically creates transactions).*
 
 ![Personal Financial Management System Workflow](https://github.com/Mancupfire/Database_Management/blob/main/Image/Workflow.png)
 
 ## 🧱 Planned Core Entities
-*Tóm tắt lược đồ cơ sở dữ liệu (Đã cập nhật cho 3 tính năng mới):*
+*Database Schema Outline (Updated for 3 new features):*
 
-1.  **Users:** Thông tin xác thực, hồ sơ, và **`base_currency` (đồng tiền mặc định)**.
-2.  **Groups & User_Groups:** Quản lý thông tin nhóm và thành viên nhóm.
-3.  **Accounts:** Các nguồn tiền (Tiền mặt, Ngân hàng).
-4.  **Categories:** Các loại chi tiêu/thu nhập.
-5.  **Transactions (CẬP NHẬT LỚN):** Bảng dữ kiện trung tâm.
-    * Các trường cũ: amount, date, description, type, UserID, AccountID, CategoryID, GroupID (nullable).
-    * **Trường mới cho Đa tiền tệ:** `original_amount` (số tiền ngoại tệ), `currency_code` (loại ngoại tệ, v.d: USD), `exchange_rate` (tỷ giá áp dụng).
-6.  **Recurring_Payments (MỚI):** Lưu trữ định nghĩa các khoản chi lặp lại.
-    * Các trường: `frequency` (tần suất: hàng tháng/tuần), `start_date`, `next_due_date`, số tiền dự kiến, và các khóa ngoại liên kết đến User, Category.
-7.  **Budgets:** Giới hạn chi tiêu theo danh mục.
+1.  **Users:** Stores credentials, profile information, and **`base_currency` (default currency)**.
+2.  **Groups & User_Groups:** Manages group information and group membership relationships.
+3.  **Accounts:** Represents fund sources (e.g., Cash, Bank Account, Credit Card).
+4.  **Categories:** Defines types of spending/income.
+5.  **Transactions (MAJOR UPDATE):** The central fact table.
+    * Existing fields: amount, date, description, type, UserID, AccountID, CategoryID, GroupID (nullable).
+    * **New fields for Multi-Currency:** `original_amount` (foreign currency amount), `currency_code` (foreign currency type, e.g., USD), `exchange_rate` (applied rate).
+6.  **Recurring_Payments (NEW):** Stores definitions for repeating expenses.
+    * Fields: `frequency` (e.g., monthly/weekly), `start_date`, `next_due_date`, estimated amount, and foreign keys linking to User and Category.
+7.  **Budgets:** Stores spending limits set by a user for specific categories.
 
 ## 🔧 Tech Stack
 
-* **Database:** [MySQL / PostgreSQL] - *Hãy chọn 1 loại bạn đang dùng*
-* **Backend:** [Python (Flask) / Node.js / PHP] - *Hãy chọn stack bạn đang dùng*
-* **Frontend:** [HTML5, CSS3, Bootstrap / React] - *Hãy chọn stack bạn đang dùng*
+* **Database:** [MySQL / PostgreSQL] - *Please select the one you are using*
+* **Backend:** [Python (Flask) / Node.js / PHP] - *Please select the stack you are using*
+* **Frontend:** [HTML5, CSS3, Bootstrap / React] - *Please select the stack you are using*
 * **Version Control:** Git & GitHub
-* **Diagramming Tools:** [Draw.io / Lucidchart] (cho ER Diagrams)
+* **Diagramming Tools:** [Draw.io / Lucidchart] (for ER Diagrams)
 
 ## 👥 Team Roles and Responsibilities
 
-*(Điều chỉnh lại cho phù hợp với thực tế nhóm của bạn)*
+*(Adjust this table to match your team's actual reality)*
 
 | Name | Role | Responsibilities |
 | :--- | :--- | :--- |
-| **Nguyen Son Giang** | Project Lead & DB Architect | Thiết kế ERD, chuẩn hóa lược đồ DB (bao gồm bảng Recurring mới và các trường tiền tệ). |
-| **Tran Nam Nhat Anh** | Backend Developer | Phát triển API CRUD, logic xử lý giao dịch đa tiền tệ và tiến trình tự động cho thanh toán định kỳ. |
-| **Nguyen Tran Nhat Minh** | Frontend Developer | Thiết kế UI/UX, tạo form nhập liệu hỗ trợ chọn ngoại tệ và giao diện quản lý subscription. |
-| **Nguyen Hoang Nam** | QA & Documentation | Kiểm thử chức năng (đặc biệt là tính toán tỷ giá và cảnh báo bất thường), viết tài liệu. |
+| **Nguyen Son Giang** | Project Lead & DB Architect | ERD design, DB schema normalization (including the new `Recurring_Payments` table and currency fields). |
+| **Tran Nam Nhat Anh** | Backend Developer | Developing CRUD APIs, handling multi-currency transaction logic, and the automated scheduler for recurring payments. |
+| **Nguyen Tran Nhat Minh** | Frontend Developer | UI/UX design, creating input forms that support foreign currency selection and subscription management interfaces. |
+| **Nguyen Hoang Nam** | QA & Documentation | Functional testing (especially exchange rate calculations and unusual alerts logic), writing documentation. |
 
 ## 🗓️ Timeline (Planned Milestones)
 
@@ -85,13 +85,13 @@ Biểu đồ dưới đây minh họa luồng người dùng cấp cao trong h�
     * Finalize scope with new features (Multi-currency, Recurring, Alerts).
     * Finalize ER Diagram and database normalization.
 * **Week 2: Database Implementation**
-    * Set up DBMS. Write DDL scripts for all tables bao gồm `Recurring_Payments` và các thay đổi trong `Transactions`.
+    * Set up DBMS. Write DDL scripts for all tables including the new `Recurring_Payments` and changes to `Transactions`.
 * **Week 3: Backend Development - Core & Currency**
     * Implement basic CRUD and Authentication.
     * Implement logic for handling multi-currency transactions and exchange rate storage.
 * **Week 4: Backend Development - Advanced Features**
-    * Implement logic for Recurring Payments scheduler.
-    * Implement logic for Unusual Spending Alerts (so sánh với lịch sử trung bình).
+    * Implement logic for the Recurring Payments scheduler background process.
+    * Implement logic for Unusual Spending Alerts (comparing current bill vs historical average).
 * **Week 5: Frontend Integration & Testing**
     * Build UI for transaction inputs (with currency formatting) and subscription management.
-    * Perform comprehensive testing and deployment.
+    * Perform comprehensive testing and final deployment.
