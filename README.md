@@ -1,4 +1,4 @@
-# Database_Management
+# Database Management
 
 # 📌 MoneyMinder: Personal Finance Management System
 
