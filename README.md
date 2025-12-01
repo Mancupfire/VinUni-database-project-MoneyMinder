@@ -20,13 +20,13 @@
 1.  **User Management:** Users can register, login, and set up their profiles (including selecting a default base currency, e.g., VND or USD).
 2.  **Group Management:** Users can create shared spending groups, invite members, and view member lists.
 3.  **Transaction Management:** CRUD (Create, Read, Update, Delete) income/expense records. Users select a "Personal" or "Group" context khi creating a transaction.
-4.  **Multi-Currency & Travel Mode (NEW FEATURE):**
+4.  **Multi-Currency & Travel Mode:**
     * Allows recording transactions in foreign currencies different from the base currency (e.g., spending USD while traveling when the main account is in VND).
     * The user enters the original currency amount and the exchange rate at the time of the transaction. The system stores both and converts to the base currency for reporting.
-5.  **Subscription & Recurring Payments (NEW FEATURE):**
+5.  **Subscription & Recurring Payments:**
     * Users define recurring expenses (e.g., Netflix, Rent, Internet) with a specific frequency (monthly, yearly).
     * The system automatically generates the transaction when due or sends a notification reminding the user to confirm the payment.
-6.  **Unusual Spending Alerts (NEW FEATURE):**
+6.  **Unusual Spending Alerts:**
     * The system analyzes spending history for essential categories (e.g., Electricity, Water).
     * If a newly entered bill is significantly higher than that user's historical average (e.g., exceeds by 25%), the system displays an alert for the user to review.
 7.  **Categorization & Budgeting:** Link transactions to specific categories and set monthly spending limits.
