@@ -1,5 +1,6 @@
--- Users Table
-CREATE TABLE Users (
+CREATE DATABASE Final_Project;
+USE Final_Project;
+CREATE TABLE `Users` (
     user_id INT PRIMARY KEY AUTO_INCREMENT,
     username VARCHAR(50) NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
@@ -9,7 +10,7 @@ CREATE TABLE Users (
 );
 
 -- Groups Table
-CREATE TABLE Groups (
+CREATE TABLE `Groups` (
     group_id INT PRIMARY KEY AUTO_INCREMENT,
     group_name VARCHAR(100) NOT NULL,
     created_by INT,
@@ -18,21 +19,21 @@ CREATE TABLE Groups (
 );
 
 -- User_Groups (Junction Table for M:N relationship)
-CREATE TABLE User_Groups (
+CREATE TABLE `User_Groups` (
     user_id INT,
     group_id INT,
     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, group_id),
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
-    FOREIGN KEY (group_id) REFERENCES Groups(group_id) ON DELETE CASCADE
+    FOREIGN KEY (group_id) REFERENCES `Groups`(group_id) ON DELETE CASCADE
 );
 
 -- Accounts Table
 CREATE TABLE Accounts (
     account_id INT PRIMARY KEY AUTO_INCREMENT,
     user_id INT NOT NULL,
-    account_name VARCHAR(50) NOT NULL, -- e.g., "Vietcombank", "Cash Wallet"
-    account_type VARCHAR(20), -- e.g., 'Bank', 'Cash', 'Credit'
+    account_name VARCHAR(50) NOT NULL, -- "Vietcombank", "Cash Wallet"
+    account_type VARCHAR(20), -- 'Bank', 'Cash', 'Credit'
     balance DECIMAL(15, 2) DEFAULT 0.00,
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
 );
@@ -50,9 +51,12 @@ CREATE TABLE Transactions (
     user_id INT NOT NULL,
     account_id INT NOT NULL,
     category_id INT NOT NULL,
-    group_id INT, 
+    group_id INT, -- Nullable, only populated if it's a group expense
+    
+    -- Base Currency Values (for reporting)
     amount DECIMAL(15, 2) NOT NULL, 
     
+    -- Multi-Currency Support
     original_amount DECIMAL(15, 2), -- The amount paid in foreign currency
     currency_code VARCHAR(3) DEFAULT 'VND', -- The foreign currency code
     exchange_rate DECIMAL(10, 6) DEFAULT 1.0, -- Rate used at moment of transaction
@@ -63,9 +67,10 @@ CREATE TABLE Transactions (
     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
     FOREIGN KEY (account_id) REFERENCES Accounts(account_id) ON DELETE CASCADE,
     FOREIGN KEY (category_id) REFERENCES Categories(category_id),
-    FOREIGN KEY (group_id) REFERENCES Groups(group_id) ON DELETE SET NULL
+    FOREIGN KEY (group_id) REFERENCES `Groups`(group_id) ON DELETE SET NULL
 );
 
+-- Recurring_Payments Table
 CREATE TABLE Recurring_Payments (
     recurring_id INT PRIMARY KEY AUTO_INCREMENT,
     user_id INT NOT NULL,
