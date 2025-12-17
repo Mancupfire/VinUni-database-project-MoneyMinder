@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>API Test</title>
+  <style>
+    body {
+      font-family: monospace;
+      padding: 20px;
+    }
+
+    .success {
+      color: green;
+    }
+
+    .error {
+      color: red;
+    }
+
+    pre {
+      background: #f4f4f4;
+      padding: 10px;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>MoneyMinder API Test</h1>
+  <button onclick="testLogin()">1. Test Login</button>
+  <button onclick="testTransactions()">2. Test Transactions</button>
+  <button onclick="testAccounts()">3. Test Accounts</button>
+  <div id="output"></div>
+
+  <script>
+    const API_URL = 'http://localhost:5000/api';
+    let token = null;
+
+    function log(message, type = 'info') {
+      const output = document.getElementById('output');
+      const div = document.createElement('div');
+      div.className = type;
+      div.innerHTML = `<strong>[${new Date().toLocaleTimeString()}]</strong> ${message}`;
+      output.appendChild(div);
+    }
+
+    async function testLogin() {
+      try {
+        log('Testing login...');
+        const response = await fetch(`${API_URL}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: 'john.doe@example.com',
+            password: 'Demo@2024'
+          })
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+          token = data.token;
+          log(`✓ Login successful! Token: ${token.substring(0, 30)}...`, 'success');
+          log(`<pre>${JSON.stringify(data.user, null, 2)}</pre>`);
+        } else {
+          log(`✗ Login failed: ${data.error}`, 'error');
+        }
+      } catch (error) {
+        log(`✗ Error: ${error.message}`, 'error');
+      }
+    }
+
+    async function testTransactions() {
+      if (!token) {
+        log('✗ Please login first!', 'error');
+        return;
+      }
+
+      try {
+        log('Testing transactions endpoint...');
+        const response = await fetch(`${API_URL}/transactions`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+          log(`✓ Transactions loaded: ${data.transactions.length} items`, 'success');
+          log(`<pre>${JSON.stringify(data.transactions.slice(0, 2), null, 2)}</pre>`);
+        } else {
+          log(`✗ Failed: ${data.error}`, 'error');
+        }
+      } catch (error) {
+        log(`✗ Error: ${error.message}`, 'error');
+      }
+    }
+
+    async function testAccounts() {
+      if (!token) {
+        log('✗ Please login first!', 'error');
+        return;
+      }
+
+      try {
+        log('Testing accounts endpoint...');
+        const response = await fetch(`${API_URL}/accounts`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+          log(`✓ Accounts loaded: ${data.length} items`, 'success');
+          log(`<pre>${JSON.stringify(data, null, 2)}</pre>`);
+        } else {
+          log(`✗ Failed: ${data.error}`, 'error');
+        }
+      } catch (error) {
+        log(`✗ Error: ${error.message}`, 'error');
+      }
+    }
+  </script>
+</body>
+
+</html>

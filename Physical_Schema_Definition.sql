@@ -102,7 +102,7 @@ CREATE TABLE Transactions (
     amount DECIMAL(15, 2) NOT NULL, 
     original_amount DECIMAL(15, 2),            -- For Multi-Currency support
     currency_code VARCHAR(3) DEFAULT 'VND',    
-    exchange_rate DECIMAL(10, 6) DEFAULT 1.0,  
+    exchange_rate DECIMAL(15, 6) DEFAULT 1.0,  
     
     transaction_date DATETIME NOT NULL,
     description TEXT,
@@ -161,14 +161,217 @@ JOIN Categories c ON t.category_id = c.category_id
 GROUP BY t.user_id, month_year, c.category_name, c.type;
 
 -- ==========================================================
--- 5. SEED DATA (System Defaults)
+-- 5. STORED PROCEDURES (Business Logic)
 -- ==========================================================
 
--- Insert Default Categories (So the app isn't empty on first load)
--- INSERT INTO Categories (user_id, category_name, type) VALUES 
--- (NULL, 'Food & Beverage', 'Expense'),
--- (NULL, 'Transportation', 'Expense'),
--- (NULL, 'Rent', 'Expense'),
--- (NULL, 'Utilities', 'Expense'),
--- (NULL, 'Salary', 'Income'),
--- (NULL, 'Freelance', 'Income');
+-- PROCEDURE 1: Create Recurring Transaction
+-- Automatically generates a transaction from recurring payment and updates next due date
+DELIMITER //
+CREATE PROCEDURE SP_Create_Recurring_Transaction(
+    IN p_recurring_id INT
+)
+BEGIN
+    DECLARE v_user_id INT;
+    DECLARE v_account_id INT;
+    DECLARE v_category_id INT;
+    DECLARE v_amount DECIMAL(15, 2);
+    DECLARE v_frequency VARCHAR(20);
+    DECLARE v_next_due DATE;
+    
+    -- Get recurring payment details
+    SELECT user_id, account_id, category_id, amount, frequency, next_due_date
+    INTO v_user_id, v_account_id, v_category_id, v_amount, v_frequency, v_next_due
+    FROM Recurring_Payments
+    WHERE recurring_id = p_recurring_id AND is_active = TRUE;
+    
+    -- Insert transaction
+    INSERT INTO Transactions (user_id, account_id, category_id, recurring_id, amount, transaction_date, description)
+    VALUES (v_user_id, v_account_id, v_category_id, p_recurring_id, v_amount, v_next_due, 
+            CONCAT('Recurring payment - ', v_frequency));
+    
+    -- Update next due date based on frequency
+    UPDATE Recurring_Payments
+    SET next_due_date = CASE 
+        WHEN frequency = 'Daily' THEN DATE_ADD(next_due_date, INTERVAL 1 DAY)
+        WHEN frequency = 'Weekly' THEN DATE_ADD(next_due_date, INTERVAL 1 WEEK)
+        WHEN frequency = 'Monthly' THEN DATE_ADD(next_due_date, INTERVAL 1 MONTH)
+        WHEN frequency = 'Yearly' THEN DATE_ADD(next_due_date, INTERVAL 1 YEAR)
+    END
+    WHERE recurring_id = p_recurring_id;
+END //
+DELIMITER ;
+
+-- PROCEDURE 2: Check Budget Alert
+-- Checks if user has exceeded budget limit for a specific category
+DELIMITER //
+CREATE PROCEDURE SP_Check_Budget_Alert(
+    IN p_user_id INT,
+    IN p_category_id INT,
+    IN p_start_date DATE,
+    IN p_end_date DATE,
+    OUT p_budget_limit DECIMAL(15, 2),
+    OUT p_total_spent DECIMAL(15, 2),
+    OUT p_percentage_used DECIMAL(5, 2),
+    OUT p_alert_status VARCHAR(20)
+)
+BEGIN
+    -- Get budget limit
+    SELECT amount_limit INTO p_budget_limit
+    FROM Budgets
+    WHERE user_id = p_user_id 
+    AND category_id = p_category_id
+    AND start_date <= p_start_date 
+    AND end_date >= p_end_date
+    LIMIT 1;
+    
+    -- Calculate total spent
+    SELECT COALESCE(SUM(amount), 0) INTO p_total_spent
+    FROM Transactions
+    WHERE user_id = p_user_id 
+    AND category_id = p_category_id
+    AND transaction_date BETWEEN p_start_date AND p_end_date;
+    
+    -- Calculate percentage
+    IF p_budget_limit IS NOT NULL AND p_budget_limit > 0 THEN
+        SET p_percentage_used = (p_total_spent / p_budget_limit) * 100;
+        
+        -- Set alert status
+        SET p_alert_status = CASE
+            WHEN p_percentage_used >= 100 THEN 'EXCEEDED'
+            WHEN p_percentage_used >= 80 THEN 'WARNING'
+            WHEN p_percentage_used >= 50 THEN 'NORMAL'
+            ELSE 'SAFE'
+        END;
+    ELSE
+        SET p_percentage_used = 0;
+        SET p_alert_status = 'NO_BUDGET';
+    END IF;
+END //
+DELIMITER ;
+
+-- ==========================================================
+-- 6. TRIGGERS (Automated Actions)
+-- ==========================================================
+
+-- TRIGGER 1: Update Account Balance on Transaction Insert
+DELIMITER //
+CREATE TRIGGER TRG_Update_Account_Balance_Insert
+AFTER INSERT ON Transactions
+FOR EACH ROW
+BEGIN
+    DECLARE v_category_type VARCHAR(10);
+    
+    -- Get category type (Income or Expense)
+    SELECT type INTO v_category_type
+    FROM Categories
+    WHERE category_id = NEW.category_id;
+    
+    -- Update account balance
+    IF v_category_type = 'Income' THEN
+        UPDATE Accounts
+        SET balance = balance + NEW.amount
+        WHERE account_id = NEW.account_id;
+    ELSE
+        UPDATE Accounts
+        SET balance = balance - NEW.amount
+        WHERE account_id = NEW.account_id;
+    END IF;
+END //
+DELIMITER ;
+
+-- TRIGGER 2: Update Account Balance on Transaction Delete
+DELIMITER //
+CREATE TRIGGER TRG_Update_Account_Balance_Delete
+AFTER DELETE ON Transactions
+FOR EACH ROW
+BEGIN
+    DECLARE v_category_type VARCHAR(10);
+    
+    -- Get category type (Income or Expense)
+    SELECT type INTO v_category_type
+    FROM Categories
+    WHERE category_id = OLD.category_id;
+    
+    -- Reverse the balance change
+    IF v_category_type = 'Income' THEN
+        UPDATE Accounts
+        SET balance = balance - OLD.amount
+        WHERE account_id = OLD.account_id;
+    ELSE
+        UPDATE Accounts
+        SET balance = balance + OLD.amount
+        WHERE account_id = OLD.account_id;
+    END IF;
+END //
+DELIMITER ;
+
+-- TRIGGER 3: Update Account Balance on Transaction Update
+DELIMITER //
+CREATE TRIGGER TRG_Update_Account_Balance_Update
+AFTER UPDATE ON Transactions
+FOR EACH ROW
+BEGIN
+    DECLARE v_old_type VARCHAR(10);
+    DECLARE v_new_type VARCHAR(10);
+    
+    -- Get old and new category types
+    SELECT type INTO v_old_type FROM Categories WHERE category_id = OLD.category_id;
+    SELECT type INTO v_new_type FROM Categories WHERE category_id = NEW.category_id;
+    
+    -- Reverse old transaction effect
+    IF v_old_type = 'Income' THEN
+        UPDATE Accounts SET balance = balance - OLD.amount WHERE account_id = OLD.account_id;
+    ELSE
+        UPDATE Accounts SET balance = balance + OLD.amount WHERE account_id = OLD.account_id;
+    END IF;
+    
+    -- Apply new transaction effect
+    IF v_new_type = 'Income' THEN
+        UPDATE Accounts SET balance = balance + NEW.amount WHERE account_id = NEW.account_id;
+    ELSE
+        UPDATE Accounts SET balance = balance - NEW.amount WHERE account_id = NEW.account_id;
+    END IF;
+END //
+DELIMITER ;
+
+-- ==========================================================
+-- 7. SEED DATA (System Defaults & Test Data)
+-- ==========================================================
+
+-- Insert Default Categories (System-wide, user_id = NULL)
+INSERT INTO Categories (user_id, category_name, type) VALUES 
+(NULL, 'Food & Beverage', 'Expense'),
+(NULL, 'Transportation', 'Expense'),
+(NULL, 'Rent', 'Expense'),
+(NULL, 'Utilities', 'Expense'),
+(NULL, 'Entertainment', 'Expense'),
+(NULL, 'Healthcare', 'Expense'),
+(NULL, 'Education', 'Expense'),
+(NULL, 'Shopping', 'Expense'),
+(NULL, 'Salary', 'Income'),
+(NULL, 'Freelance', 'Income'),
+(NULL, 'Investment', 'Income'),
+(NULL, 'Other', 'Income');
+
+-- ==========================================================
+-- 8. SECURITY CONFIGURATION
+-- ==========================================================
+
+-- Create MySQL Users with Different Privilege Levels
+-- Note: Update passwords before production deployment
+
+-- Admin User (Full Access)
+CREATE USER IF NOT EXISTS 'moneyminder_admin'@'localhost' IDENTIFIED BY 'Admin@2024Secure!';
+GRANT ALL PRIVILEGES ON MoneyMinder_DB.* TO 'moneyminder_admin'@'localhost';
+
+-- Application User (CRUD Operations)
+CREATE USER IF NOT EXISTS 'moneyminder_app'@'localhost' IDENTIFIED BY 'App@2024Secure!';
+GRANT SELECT, INSERT, UPDATE, DELETE ON MoneyMinder_DB.* TO 'moneyminder_app'@'localhost';
+GRANT EXECUTE ON MoneyMinder_DB.* TO 'moneyminder_app'@'localhost';
+
+-- Read-Only User (Analytics/Reporting)
+CREATE USER IF NOT EXISTS 'moneyminder_readonly'@'localhost' IDENTIFIED BY 'ReadOnly@2024Secure!';
+GRANT SELECT ON MoneyMinder_DB.* TO 'moneyminder_readonly'@'localhost';
+
+-- Apply privileges
+FLUSH PRIVILEGES;
