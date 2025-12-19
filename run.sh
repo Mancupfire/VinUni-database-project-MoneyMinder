@@ -19,6 +19,8 @@ trap cleanup SIGINT SIGTERM
 # Start Backend
 echo "Starting Backend API..."
 cd backend
+# Default to turning off Flask debug to avoid shared memory issues in restricted environments
+export FLASK_DEBUG=${FLASK_DEBUG:-False}
 source venv/bin/activate
 python app.py &
 BACKEND_PID=$!

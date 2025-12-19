@@ -22,8 +22,14 @@ class Config:
     }
     
     # Flask configuration
-    DEBUG = os.getenv('FLASK_DEBUG', 'True') == 'True'
+    # Default to non-debug unless explicitly enabled
+    DEBUG = os.getenv('FLASK_DEBUG', 'False') == 'True'
     TESTING = False
+    FRONTEND_ORIGINS = [
+        origin.strip()
+        for origin in os.getenv('FRONTEND_ORIGIN', 'http://localhost:8080').split(',')
+        if origin.strip()
+    ]
     
     # Server configuration
     HOST = os.getenv('HOST', '0.0.0.0')
@@ -34,7 +40,8 @@ class Config:
 
 class DevelopmentConfig(Config):
     """Development configuration"""
-    DEBUG = True
+    # Keep the debug flag configurable via environment instead of forcing True
+    DEBUG = Config.DEBUG
     TESTING = False
 
 class ProductionConfig(Config):

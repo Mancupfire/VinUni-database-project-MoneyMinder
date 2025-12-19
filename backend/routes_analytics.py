@@ -253,3 +253,25 @@ def get_unusual_spending():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@analytics_bp.route('/rolling-expense', methods=['GET'])
+@require_auth
+def get_rolling_expense():
+    """Get 3-month rolling expense by category using window function view"""
+    try:
+        data = Database.execute_query(
+            """
+            SELECT user_id, category_id, category_name, type, month_year,
+                   total_amount, rolling_3_month_total
+            FROM View_Category_Rolling_3mo
+            WHERE user_id = %s
+            ORDER BY month_year DESC, rolling_3_month_total DESC
+            """,
+            (request.user_id,),
+            fetch_all=True
+        )
+        
+        return jsonify({'rolling_expense': data}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

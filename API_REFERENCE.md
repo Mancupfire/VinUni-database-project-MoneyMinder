@@ -486,6 +486,29 @@ Authorization: Bearer {token}
 }
 ```
 
+### Get 3-Month Rolling Expense by Category
+```http
+GET /analytics/rolling-expense
+Authorization: Bearer {token}
+```
+
+**Response:** 200 OK
+```json
+{
+  "rolling_expense": [
+    {
+      "user_id": 1,
+      "category_id": 4,
+      "category_name": "Utilities",
+      "type": "Expense",
+      "month_year": "2024-03",
+      "total_amount": 1500000.00,
+      "rolling_3_month_total": 4200000.00
+    }
+  ]
+}
+```
+
 ---
 
 ## 🏥 Health Check

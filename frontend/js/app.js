@@ -1,5 +1,5 @@
 // MoneyMinder Frontend Application
-const API_URL = 'http://localhost:5000/api';
+const API_URL = (window.MM_CONFIG && window.MM_CONFIG.API_URL) || 'http://localhost:5000/api';
 
 // State Management
 const state = {

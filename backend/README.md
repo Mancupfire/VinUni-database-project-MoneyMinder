@@ -12,7 +12,7 @@ pip install -r requirements.txt
 2. **Configure Environment**
 ```bash
 cp .env.example .env
-# Edit .env with your database credentials
+# Edit .env with your database credentials (use the least-privilege app user from db_roles.sql)
 ```
 
 3. **Initialize Database**
@@ -20,6 +20,8 @@ cp .env.example .env
 # Run the SQL scripts in order:
 mysql -u root -p < ../Physical_Schema_Definition.sql
 mysql -u root -p < ../Sample_Data.sql
+# Apply incremental patches (windowed view + validation/audit triggers)
+mysql -u root -p < ../Patch_Rolling_View_and_Audit.sql
 ```
 
 4. **Run the Server**
@@ -66,11 +68,12 @@ The API will be available at `http://localhost:5000`
 - `GET /api/analytics/budget-status` - Budget tracking
 - `GET /api/analytics/unusual-spending` - Unusual spending alerts
 
-## Authentication
+## Authentication & Security
 
-All endpoints except `/api/auth/register` and `/api/auth/login` require authentication.
-
-Include the JWT token in the Authorization header:
+- New registrations are hashed with bcrypt; legacy SHA256 hashes from the seed data still validate on login.
+- Run `db_roles.sql` (as MySQL root/admin) to create least-privilege users and update `.env` to use `moneyminder_app`.
+- All endpoints except `/api/auth/register` and `/api/auth/login` require authentication.
+- Include the JWT token in the Authorization header:
 ```
 Authorization: Bearer <your_token>
 ```

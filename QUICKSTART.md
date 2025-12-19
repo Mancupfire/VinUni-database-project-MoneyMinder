@@ -21,6 +21,7 @@ When prompted, enter your MySQL root password.
 ```bash
 # Edit if needed
 nano backend/.env
+# Set FLASK_DEBUG=False for production and rotate SECRET_KEY/JWT_SECRET_KEY/DB_PASSWORD
 ```
 
 ### Step 4: Run
@@ -32,11 +33,19 @@ nano backend/.env
 Open your browser:
 - **Frontend:** http://localhost:8080
 - **Backend API:** http://localhost:5000
+  - Override API URL for non-local setups in `frontend/js/config.js` (or set `window.MM_API_URL` before loading `app.js`).
 
 ### Step 6: Login
 Use demo account:
 - **Email:** john.doe@example.com
 - **Password:** Demo@2024
+
+### Step 7: Quick Tests
+```bash
+cd backend
+source venv/bin/activate
+python -m unittest
+```
 
 ---
 

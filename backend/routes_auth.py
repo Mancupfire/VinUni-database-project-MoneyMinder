@@ -29,8 +29,8 @@ def register():
         if existing_user:
             return jsonify({'error': 'Email already registered'}), 409
         
-        # Hash password using SHA256 (matching the database seed data)
-        password_hash = hashlib.sha256(data['password'].encode()).hexdigest()
+        # Hash password using bcrypt (new registrations use stronger hashing)
+        password_hash = AuthManager.hash_password(data['password'])
         
         # Insert new user
         user_id = Database.execute_query(
@@ -82,11 +82,17 @@ def login():
         if not user:
             return jsonify({'error': 'Invalid credentials'}), 401
         
-        # Verify password using SHA256
-        password_hash = hashlib.sha256(data['password'].encode()).hexdigest()
+        stored_hash = user['password_hash']
         
-        if password_hash != user['password_hash']:
-            return jsonify({'error': 'Invalid credentials'}), 401
+        # Support both legacy SHA256 hashes (from seed data) and new bcrypt hashes
+        is_bcrypt = stored_hash.startswith('$2a$') or stored_hash.startswith('$2b$') or stored_hash.startswith('$2y$')
+        if is_bcrypt:
+            if not AuthManager.verify_password(data['password'], stored_hash):
+                return jsonify({'error': 'Invalid credentials'}), 401
+        else:
+            legacy_hash = hashlib.sha256(data['password'].encode()).hexdigest()
+            if legacy_hash != stored_hash:
+                return jsonify({'error': 'Invalid credentials'}), 401
         
         # Generate token
         token = AuthManager.generate_token(
