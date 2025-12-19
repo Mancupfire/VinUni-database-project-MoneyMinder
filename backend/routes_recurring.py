@@ -170,6 +170,30 @@ def update_recurring_payment(recurring_id):
             updates.append("frequency = %s")
             params.append(data['frequency'])
         
+        if 'account_id' in data:
+            # Validate account belongs to user
+            account_check = Database.execute_query(
+                "SELECT account_id FROM Accounts WHERE account_id = %s AND user_id = %s",
+                (data['account_id'], request.user_id),
+                fetch_one=True
+            )
+            if not account_check:
+                return jsonify({'error': 'Account not found'}), 404
+            updates.append("account_id = %s")
+            params.append(data['account_id'])
+        
+        if 'category_id' in data:
+            updates.append("category_id = %s")
+            params.append(data['category_id'])
+        
+        if 'start_date' in data:
+            try:
+                start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+                updates.append("start_date = %s")
+                params.append(start_date)
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+        
         if 'is_active' in data:
             updates.append("is_active = %s")
             params.append(data['is_active'])

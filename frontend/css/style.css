@@ -580,6 +580,59 @@ box-shadow 0.3s;
   animation: fadeIn 0.5s ease-in;
 }
 
+/* Budget Filter and Sort Buttons */
+.budget-filter-btn.active,
+.budget-sort-btn.active {
+  background-color: var(--primary-color) !important;
+  color: white !important;
+  border-color: var(--primary-color) !important;
+}
+
+.budget-filter-btn:hover,
+.budget-sort-btn:hover {
+  background-color: rgba(16, 185, 129, 0.1);
+}
+
+/* Budget Filter and Sort Buttons */
+.budget-filter-btn.active,
+.budget-sort-btn.active {
+  background-color: var(--primary-color) !important;
+  color: white !important;
+  border-color: var(--primary-color) !important;
+}
+
+.budget-filter-btn:hover,
+.budget-sort-btn:hover {
+  background-color: rgba(16, 185, 129, 0.1);
+}
+
+.budget-sort-btn i {
+  font-size: 0.8rem;
+  margin-left: 4px;
+}
+
+/* Table Sorting */
+#transactionsTable th[data-sort] {
+  user-select: none;
+  position: relative;
+}
+
+#transactionsTable th[data-sort]:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+#transactionsTable th.sort-asc i::before {
+  content: "\F145" !important; /* bi-arrow-up */
+  color: var(--primary-color);
+  font-weight: bold;
+}
+
+#transactionsTable th.sort-desc i::before {
+  content: "\F148" !important; /* bi-arrow-down */
+  color: var(--primary-color);
+  font-weight: bold;
+}
+
 /* Toast Notifications */
 .toast-container {
   position: fixed;

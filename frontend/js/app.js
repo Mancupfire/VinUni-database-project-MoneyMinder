@@ -7,7 +7,13 @@ const state = {
   user: JSON.parse(localStorage.getItem('user')) || null,
   accounts: [],
   categories: [],
-  transactions: []
+  transactions: [],
+  budgets: [],
+  sortBy: 'date',
+  sortOrder: 'desc',
+  budgetSortBy: 'status',
+  budgetSortOrder: 'desc',
+  budgetFilter: 'all'
 };
 
 // Initialize App
@@ -60,12 +66,52 @@ function setupEventListeners() {
 
   // Forms
   document.getElementById('addTransactionForm')?.addEventListener('submit', handleAddTransaction);
+  document.getElementById('editTransactionForm')?.addEventListener('submit', handleEditTransaction);
   document.getElementById('addAccountForm')?.addEventListener('submit', handleAddAccount);
   document.getElementById('addBudgetForm')?.addEventListener('submit', handleAddBudget);
+  document.getElementById('editBudgetForm')?.addEventListener('submit', handleEditBudget);
   document.getElementById('addGroupForm')?.addEventListener('submit', handleAddGroup);
   document.getElementById('addMemberForm')?.addEventListener('submit', handleAddMember);
   document.getElementById('addRecurringForm')?.addEventListener('submit', handleAddRecurring);
+  document.getElementById('editRecurringForm')?.addEventListener('submit', handleEditRecurring);
   document.getElementById('applyFilters')?.addEventListener('click', loadTransactions);
+  
+  // Load groups when transaction modal opens
+  const txnModal = document.getElementById('addTransactionModal');
+  if (txnModal) {
+    txnModal.addEventListener('show.bs.modal', loadGroupsForTransaction);
+  }
+  
+  // Load categories when budget modal opens
+  const budgetModal = document.getElementById('addBudgetModal');
+  if (budgetModal) {
+    budgetModal.addEventListener('show.bs.modal', loadCategoriesForBudget);
+  }
+  
+  // Toggle currency fields
+  document.getElementById('txnForeignCurrency')?.addEventListener('change', function(e) {
+    document.getElementById('currencyFields').style.display = e.target.checked ? 'block' : 'none';
+  });
+  
+  // Toggle custom category field
+  document.getElementById('txnCategory')?.addEventListener('change', function(e) {
+    const customField = document.getElementById('customCategoryField');
+    if (customField) {
+      customField.style.display = e.target.value === 'other' ? 'block' : 'none';
+      document.getElementById('txnCustomCategory').required = e.target.value === 'other';
+    }
+  });
+  
+  document.getElementById('editTxnCategory')?.addEventListener('change', function(e) {
+    const customField = document.getElementById('editCustomCategoryField');
+    if (customField) {
+      customField.style.display = e.target.value === 'other' ? 'block' : 'none';
+      document.getElementById('editTxnCustomCategory').required = e.target.value === 'other';
+    }
+  });
+  
+  // Fetch exchange rate
+  document.getElementById('fetchExchangeRate')?.addEventListener('click', fetchExchangeRate);
 }
 
 // Authentication Functions
@@ -261,6 +307,30 @@ async function loadDashboard() {
 }
 
 // Transaction Functions
+function sortTransactions(sortBy) {
+  if (state.sortBy === sortBy) {
+    // Toggle sort order if clicking same column
+    state.sortOrder = state.sortOrder === 'asc' ? 'desc' : 'asc';
+  } else {
+    // New column, default to descending
+    state.sortBy = sortBy;
+    state.sortOrder = 'desc';
+  }
+  
+  // Update sort indicators
+  document.querySelectorAll('#transactionsTable th').forEach(th => {
+    th.classList.remove('sort-asc', 'sort-desc');
+  });
+  
+  const activeHeader = document.querySelector(`#transactionsTable th[data-sort="${sortBy}"]`);
+  if (activeHeader) {
+    activeHeader.classList.add(state.sortOrder === 'asc' ? 'sort-asc' : 'sort-desc');
+  }
+  
+  // Re-display with new sorting
+  displayTransactions(state.transactions);
+}
+
 async function loadTransactions() {
   try {
     // Build query params
@@ -299,7 +369,20 @@ function displayTransactions(transactions) {
   tbody.innerHTML = '';
   const currency = state.user.base_currency === 'VND' ? '₫' : '$';
 
-  transactions.forEach(txn => {
+  // Sort transactions
+  const sortedTransactions = [...transactions].sort((a, b) => {
+    let compareValue = 0;
+    
+    if (state.sortBy === 'date') {
+      compareValue = new Date(a.transaction_date) - new Date(b.transaction_date);
+    } else if (state.sortBy === 'amount') {
+      compareValue = parseFloat(a.amount) - parseFloat(b.amount);
+    }
+    
+    return state.sortOrder === 'asc' ? compareValue : -compareValue;
+  });
+
+  sortedTransactions.forEach(txn => {
     const row = tbody.insertRow();
     row.innerHTML = `
             <td>${formatDate(txn.transaction_date)}</td>
@@ -308,6 +391,9 @@ function displayTransactions(transactions) {
             <td>${txn.account_name}</td>
             <td class="txn-${txn.category_type.toLowerCase()}">${txn.category_type === 'Income' ? '+' : '-'}${formatCurrency(txn.amount, currency)}</td>
             <td>
+                <button class="btn btn-sm btn-secondary me-1" onclick="editTransaction(${txn.transaction_id})">
+                    <i class="bi bi-pencil"></i>
+                </button>
                 <button class="btn btn-sm btn-danger" onclick="deleteTransaction(${txn.transaction_id})">
                     <i class="bi bi-trash"></i>
                 </button>
@@ -319,13 +405,82 @@ function displayTransactions(transactions) {
 async function handleAddTransaction(e) {
   e.preventDefault();
 
+  // Validate amount
+  const amount = parseFloat(document.getElementById('txnAmount').value);
+  if (isNaN(amount) || amount <= 0) {
+    showToast('Please enter a valid positive amount', 'error');
+    return;
+  }
+
+  let categoryId = document.getElementById('txnCategory').value;
+  
+  // Handle custom category
+  if (categoryId === 'other') {
+    const customCategoryName = document.getElementById('txnCustomCategory').value.trim();
+    if (!customCategoryName) {
+      showToast('Please enter a custom category name', 'error');
+      return;
+    }
+    
+    // Create new category first
+    try {
+      const catResponse = await apiRequest('/categories', {
+        method: 'POST',
+        body: JSON.stringify({
+          category_name: customCategoryName,
+          type: 'Expense'
+        })
+      });
+      
+      if (catResponse.ok) {
+        const catData = await catResponse.json();
+        categoryId = catData.category_id;
+      } else {
+        showToast('Failed to create custom category', 'error');
+        return;
+      }
+    } catch (error) {
+      showToast('Error creating custom category', 'error');
+      return;
+    }
+  }
+
   const transactionData = {
     account_id: parseInt(document.getElementById('txnAccount').value),
-    category_id: parseInt(document.getElementById('txnCategory').value),
-    amount: parseFloat(document.getElementById('txnAmount').value),
+    category_id: parseInt(categoryId),
+    amount: amount,
     transaction_date: document.getElementById('txnDate').value,
     description: document.getElementById('txnDescription').value
   };
+
+  // Add group if selected
+  const groupId = document.getElementById('txnGroup').value;
+  if (groupId) {
+    transactionData.group_id = parseInt(groupId);
+  }
+
+  // Add multi-currency fields if foreign currency is enabled
+  const isForeign = document.getElementById('txnForeignCurrency').checked;
+  if (isForeign) {
+    const originalAmount = parseFloat(document.getElementById('txnOriginalAmount').value);
+    const currencyCode = document.getElementById('txnCurrencyCode').value;
+    const exchangeRate = parseFloat(document.getElementById('txnExchangeRate').value);
+    
+    if (!originalAmount || isNaN(originalAmount) || originalAmount <= 0) {
+      showToast('Please enter a valid original amount', 'error');
+      return;
+    }
+    if (!exchangeRate || isNaN(exchangeRate) || exchangeRate <= 0) {
+      showToast('Please enter a valid exchange rate', 'error');
+      return;
+    }
+    
+    transactionData.original_amount = originalAmount;
+    transactionData.currency_code = currencyCode;
+    transactionData.exchange_rate = exchangeRate;
+    // Recalculate amount based on exchange rate
+    transactionData.amount = originalAmount * exchangeRate;
+  }
 
   try {
     const response = await apiRequest('/transactions', {
@@ -343,8 +498,10 @@ async function handleAddTransaction(e) {
         showToast(`⚠️ ${data.alert.message}`, 'warning');
       }
 
-      // Close modal
+      // Close modal and reset form
       bootstrap.Modal.getInstance(document.getElementById('addTransactionModal')).hide();
+      document.getElementById('addTransactionForm').reset();
+      document.getElementById('currencyFields').style.display = 'none';
 
       // Reload data
       loadTransactions();
@@ -379,6 +536,130 @@ async function deleteTransaction(id) {
     console.error('Delete transaction error:', error);
   }
 }
+
+async function editTransaction(transactionId) {
+  try {
+    const response = await apiRequest(`/transactions/${transactionId}`);
+    const data = await response.json();
+    
+    if (!response.ok) {
+      showToast(data.error || 'Transaction not found', 'error');
+      return;
+    }
+    
+    const transaction = data.transaction; // Backend returns {transaction: {...}}
+
+    // Load accounts and categories
+    const accountsResponse = await apiRequest('/accounts');
+    const accountsData = await accountsResponse.json();
+    const accounts = accountsData.accounts || accountsData; // Handle both formats
+    
+    const categoriesResponse = await apiRequest('/categories');
+    const categoriesData = await categoriesResponse.json();
+    const categories = categoriesData.categories || categoriesData; // Handle both formats
+
+    // Populate account dropdown
+    const accountSelect = document.getElementById('editTxnAccount');
+    accountSelect.innerHTML = accounts
+      .map(a => `<option value="${a.account_id}" ${a.account_id === transaction.account_id ? 'selected' : ''}>${a.account_name} (${a.account_type})</option>`)
+      .join('');
+
+    // Populate category dropdown
+    const categorySelect = document.getElementById('editTxnCategory');
+    categorySelect.innerHTML = categories
+      .map(c => `<option value="${c.category_id}" ${c.category_id === transaction.category_id ? 'selected' : ''}>${c.category_name} (${c.type})</option>`)
+      .join('');
+    
+    // Add "Other" option
+    categorySelect.innerHTML += '<option value="other">Other (Custom)</option>';
+
+    // Populate other fields
+    document.getElementById('editTxnId').value = transaction.transaction_id;
+    document.getElementById('editTxnAmount').value = transaction.amount;
+    document.getElementById('editTxnDate').value = transaction.transaction_date.substring(0, 16); // Format for datetime-local
+    document.getElementById('editTxnDescription').value = transaction.description || '';
+
+    // Show modal
+    new bootstrap.Modal(document.getElementById('editTransactionModal')).show();
+  } catch (error) {
+    showToast('Error loading transaction', 'error');
+    console.error('Edit transaction error:', error);
+  }
+}
+
+async function handleEditTransaction(e) {
+  e.preventDefault();
+
+  const transactionId = document.getElementById('editTxnId').value;
+  const amount = parseFloat(document.getElementById('editTxnAmount').value);
+  
+  if (isNaN(amount) || amount <= 0) {
+    showToast('Please enter a valid positive amount', 'error');
+    return;
+  }
+
+  let categoryId = document.getElementById('editTxnCategory').value;
+  
+  // Handle custom category
+  if (categoryId === 'other') {
+    const customCategoryName = document.getElementById('editTxnCustomCategory').value.trim();
+    if (!customCategoryName) {
+      showToast('Please enter a custom category name', 'error');
+      return;
+    }
+    
+    // Create new category first
+    try {
+      const catResponse = await apiRequest('/categories', {
+        method: 'POST',
+        body: JSON.stringify({
+          category_name: customCategoryName,
+          type: 'Expense'
+        })
+      });
+      
+      if (catResponse.ok) {
+        const catData = await catResponse.json();
+        categoryId = catData.category_id;
+      } else {
+        showToast('Failed to create custom category', 'error');
+        return;
+      }
+    } catch (error) {
+      showToast('Error creating custom category', 'error');
+      return;
+    }
+  }
+
+  const transactionData = {
+    account_id: parseInt(document.getElementById('editTxnAccount').value),
+    category_id: parseInt(categoryId),
+    amount: amount,
+    transaction_date: document.getElementById('editTxnDate').value,
+    description: document.getElementById('editTxnDescription').value
+  };
+
+  try {
+    const response = await apiRequest(`/transactions/${transactionId}`, {
+      method: 'PUT',
+      body: JSON.stringify(transactionData)
+    });
+
+    if (response.ok) {
+      showToast('Transaction updated successfully!', 'success');
+      bootstrap.Modal.getInstance(document.getElementById('editTransactionModal')).hide();
+      loadTransactions();
+      loadDashboard();
+    } else {
+      const data = await response.json();
+      showToast(data.error || 'Failed to update transaction', 'error');
+    }
+  } catch (error) {
+    showToast('Error updating transaction', 'error');
+    console.error('Update transaction error:', error);
+  }
+}
+
 
 // Account Functions
 async function loadAccounts() {
@@ -432,10 +713,22 @@ function displayAccounts(accounts) {
 async function handleAddAccount(e) {
   e.preventDefault();
 
+  const balance = parseFloat(document.getElementById('accBalance').value);
+  if (isNaN(balance)) {
+    showToast('Please enter a valid balance', 'error');
+    return;
+  }
+
+  const accountName = document.getElementById('accName').value.trim();
+  if (!accountName) {
+    showToast('Please enter an account name', 'error');
+    return;
+  }
+
   const accountData = {
-    account_name: document.getElementById('accName').value,
+    account_name: accountName,
     account_type: document.getElementById('accType').value,
-    balance: parseFloat(document.getElementById('accBalance').value)
+    balance: balance
   };
 
   try {
@@ -594,6 +887,12 @@ async function loadCategoriesForModal() {
       option.textContent = `${cat.category_name} (${cat.type})`;
       select.appendChild(option);
     });
+    
+    // Add "Other" option at the end
+    const otherOption = document.createElement('option');
+    otherOption.value = 'other';
+    otherOption.textContent = 'Other (Custom)';
+    select.appendChild(otherOption);
   }
 }
 
@@ -690,11 +989,25 @@ function showToast(message, type = 'success') {
 async function handleAddBudget(e) {
   e.preventDefault();
 
+  const amountLimit = parseFloat(document.getElementById('budgetLimit').value);
+  if (isNaN(amountLimit) || amountLimit <= 0) {
+    showToast('Please enter a valid budget amount', 'error');
+    return;
+  }
+
+  const startDate = document.getElementById('budgetStartDate').value;
+  const endDate = document.getElementById('budgetEndDate').value;
+  
+  if (new Date(endDate) <= new Date(startDate)) {
+    showToast('End date must be after start date', 'error');
+    return;
+  }
+
   const data = {
     category_id: parseInt(document.getElementById('budgetCategory').value),
-    amount_limit: parseFloat(document.getElementById('budgetLimit').value),
-    start_date: document.getElementById('budgetStartDate').value,
-    end_date: document.getElementById('budgetEndDate').value
+    amount_limit: amountLimit,
+    start_date: startDate,
+    end_date: endDate
   };
 
   try {
@@ -775,10 +1088,16 @@ async function handleAddMember(e) {
 async function handleAddRecurring(e) {
   e.preventDefault();
 
+  const amount = parseFloat(document.getElementById('recurringAmount').value);
+  if (isNaN(amount) || amount <= 0) {
+    showToast('Please enter a valid amount', 'error');
+    return;
+  }
+
   const data = {
     account_id: parseInt(document.getElementById('recurringAccount').value),
     category_id: parseInt(document.getElementById('recurringCategory').value),
-    amount: parseFloat(document.getElementById('recurringAmount').value),
+    amount: amount,
     frequency: document.getElementById('recurringFrequency').value,
     start_date: document.getElementById('recurringStartDate').value
   };
@@ -806,13 +1125,15 @@ async function handleAddRecurring(e) {
 async function loadCategoriesForBudget() {
   try {
     const response = await apiRequest('/categories');
-    const categories = await response.json();
+    const data = await response.json();
 
     const select = document.getElementById('budgetCategory');
-    select.innerHTML = categories
-      .filter(c => c.type === 'Expense')
-      .map(c => `<option value="${c.category_id}">${c.category_name}</option>`)
-      .join('');
+    if (select) {
+      select.innerHTML = data.categories
+        .filter(c => c.type === 'Expense')
+        .map(c => `<option value="${c.category_id}">${c.category_name}</option>`)
+        .join('');
+    }
   } catch (error) {
     console.error('Error loading categories:', error);
   }
@@ -821,7 +1142,8 @@ async function loadCategoriesForBudget() {
 async function loadAccountsForRecurring() {
   try {
     const response = await apiRequest('/accounts');
-    const accounts = await response.json();
+    const data = await response.json();
+    const accounts = data.accounts || data;
 
     const select = document.getElementById('recurringAccount');
     select.innerHTML = accounts
@@ -835,7 +1157,8 @@ async function loadAccountsForRecurring() {
 async function loadCategoriesForRecurring() {
   try {
     const response = await apiRequest('/categories');
-    const categories = await response.json();
+    const data = await response.json();
+    const categories = data.categories || data;
 
     const select = document.getElementById('recurringCategory');
     select.innerHTML = categories
@@ -855,8 +1178,41 @@ async function loadBudgets() {
     const response = await apiRequest('/budgets');
     const budgets = await response.json();
 
+    state.budgets = budgets || [];
+    displayBudgets(state.budgets);
+  } catch (error) {
+    showToast('Error loading budgets', 'error');
+    console.error('Budgets error:', error);
+  }
+}
+
+function displayBudgets(budgets) {
+  // Apply filter
+  let filteredBudgets = budgets;
+  if (state.budgetFilter !== 'all') {
+    filteredBudgets = budgets.filter(b => b.status === state.budgetFilter.toUpperCase());
+  }
+
+  // Apply sorting
+  const sortedBudgets = [...filteredBudgets].sort((a, b) => {
+    let compareValue = 0;
+    
+    if (state.budgetSortBy === 'status') {
+      const statusOrder = { 'EXCEEDED': 4, 'WARNING': 3, 'NORMAL': 2, 'SAFE': 1 };
+      compareValue = (statusOrder[a.status] || 0) - (statusOrder[b.status] || 0);
+    } else if (state.budgetSortBy === 'amount') {
+      compareValue = parseFloat(a.amount_limit) - parseFloat(b.amount_limit);
+    } else if (state.budgetSortBy === 'spent') {
+      compareValue = parseFloat(a.spent) - parseFloat(b.spent);
+    } else if (state.budgetSortBy === 'category') {
+      compareValue = a.category_name.localeCompare(b.category_name);
+    }
+    
+    return state.budgetSortOrder === 'asc' ? compareValue : -compareValue;
+  });
+
     const container = document.getElementById('budgetsContainer');
-    if (!budgets || budgets.length === 0) {
+    if (!sortedBudgets || sortedBudgets.length === 0) {
       container.innerHTML = `
         <div class="col-12 text-center text-muted py-5">
           <i class="bi bi-wallet2" style="font-size: 3rem;"></i>
@@ -866,7 +1222,7 @@ async function loadBudgets() {
       return;
     }
 
-    container.innerHTML = budgets.map(budget => {
+    container.innerHTML = sortedBudgets.map(budget => {
       const percentage = budget.percentage || 0;
       const statusClass = budget.status === 'EXCEEDED' ? 'danger' : budget.status === 'WARNING' ? 'warning' : budget.status === 'NORMAL' ? 'info' : 'success';
       const currency = state.user.base_currency === 'VND' ? '₫' : '$';
@@ -889,19 +1245,58 @@ async function loadBudgets() {
               </div>
               <div class="d-flex justify-content-between">
                 <span class="badge bg-${statusClass}">${budget.status}</span>
-                <button class="btn btn-sm btn-danger" onclick="deleteBudget(${budget.budget_id})">
-                  <i class="bi bi-trash"></i>
-                </button>
+                <div>
+                  <button class="btn btn-sm btn-secondary me-1" onclick="editBudget(${budget.budget_id})">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <button class="btn btn-sm btn-danger" onclick="deleteBudget(${budget.budget_id})">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </div>
       `;
     }).join('');
-  } catch (error) {
-    showToast('Error loading budgets', 'error');
-    console.error('Budgets error:', error);
+}
+
+function sortBudgets(sortBy) {
+  if (state.budgetSortBy === sortBy) {
+    state.budgetSortOrder = state.budgetSortOrder === 'asc' ? 'desc' : 'asc';
+  } else {
+    state.budgetSortBy = sortBy;
+    state.budgetSortOrder = 'desc';
   }
+  
+  // Update sort indicators
+  document.querySelectorAll('.budget-sort-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  
+  const activeBtn = document.querySelector(`.budget-sort-btn[data-sort="${sortBy}"]`);
+  if (activeBtn) {
+    activeBtn.classList.add('active');
+    activeBtn.querySelector('i').className = state.budgetSortOrder === 'asc' ? 'bi bi-arrow-up' : 'bi bi-arrow-down';
+  }
+  
+  displayBudgets(state.budgets);
+}
+
+function filterBudgets(filter) {
+  state.budgetFilter = filter;
+  
+  // Update filter buttons
+  document.querySelectorAll('.budget-filter-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  
+  const activeBtn = document.querySelector(`.budget-filter-btn[data-filter="${filter}"]`);
+  if (activeBtn) {
+    activeBtn.classList.add('active');
+  }
+  
+  displayBudgets(state.budgets);
 }
 
 async function deleteBudget(budgetId) {
@@ -915,6 +1310,135 @@ async function deleteBudget(budgetId) {
     }
   } catch (error) {
     showToast('Error deleting budget', 'error');
+  }
+}
+
+async function editBudget(budgetId) {
+  try {
+    const response = await apiRequest(`/budgets/${budgetId}`);
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      showToast(errorData.error || 'Budget not found', 'error');
+      return;
+    }
+    
+    const budget = await response.json();
+
+    // Load categories
+    const categoriesResponse = await apiRequest('/categories');
+    const categoriesData = await categoriesResponse.json();
+    const categories = categoriesData.categories || categoriesData;
+
+    // Populate category dropdown
+    const categorySelect = document.getElementById('editBudgetCategory');
+    categorySelect.innerHTML = categories
+      .filter(c => c.type === 'Expense')
+      .map(c => `<option value="${c.category_id}" ${c.category_id === budget.category_id ? 'selected' : ''}>${c.category_name}</option>`)
+      .join('');
+
+    // Populate other fields
+    document.getElementById('editBudgetId').value = budget.budget_id;
+    document.getElementById('editBudgetLimit').value = budget.amount_limit;
+    document.getElementById('editBudgetStartDate').value = budget.start_date;
+    document.getElementById('editBudgetEndDate').value = budget.end_date;
+
+    // Show modal
+    new bootstrap.Modal(document.getElementById('editBudgetModal')).show();
+  } catch (error) {
+    showToast('Error loading budget', 'error');
+    console.error('Edit budget error:', error);
+  }
+}
+
+async function handleEditBudget(e) {
+  e.preventDefault();
+
+  const budgetId = document.getElementById('editBudgetId').value;
+  const amountLimit = parseFloat(document.getElementById('editBudgetLimit').value);
+  
+  if (isNaN(amountLimit) || amountLimit <= 0) {
+    showToast('Please enter a valid budget amount', 'error');
+    return;
+  }
+
+  const startDate = document.getElementById('editBudgetStartDate').value;
+  const endDate = document.getElementById('editBudgetEndDate').value;
+  
+  if (new Date(endDate) <= new Date(startDate)) {
+    showToast('End date must be after start date', 'error');
+    return;
+  }
+
+  const data = {
+    category_id: parseInt(document.getElementById('editBudgetCategory').value),
+    amount_limit: amountLimit,
+    start_date: startDate,
+    end_date: endDate
+  };
+
+  try {
+    const response = await apiRequest(`/budgets/${budgetId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+
+    if (response.ok) {
+      showToast('Budget updated successfully');
+      bootstrap.Modal.getInstance(document.getElementById('editBudgetModal')).hide();
+      loadBudgets();
+    } else {
+      const error = await response.json();
+      showToast(error.error || 'Failed to update budget', 'error');
+    }
+  } catch (error) {
+    showToast('Error updating budget', 'error');
+  }
+}
+
+async function fetchExchangeRate() {
+  const currencyCode = document.getElementById('txnCurrencyCode').value;
+  const baseCurrency = state.user.base_currency || 'VND';
+  
+  if (!currencyCode) {
+    showToast('Please select a currency first', 'error');
+    return;
+  }
+
+  try {
+    const apiKey = '5d716195b0e393f93ac3bfe6';
+    const response = await fetch(`https://v6.exchangerate-api.com/v6/${apiKey}/latest/${currencyCode}`);
+    const data = await response.json();
+
+    if (data.result === 'success') {
+      const rate = data.conversion_rates[baseCurrency];
+      if (rate) {
+        document.getElementById('txnExchangeRate').value = rate.toFixed(4);
+        showToast(`Exchange rate updated: 1 ${currencyCode} = ${rate.toFixed(4)} ${baseCurrency}`, 'success');
+      } else {
+        showToast(`Exchange rate for ${baseCurrency} not available`, 'error');
+      }
+    } else {
+      showToast('Failed to fetch exchange rate', 'error');
+    }
+  } catch (error) {
+    showToast('Error fetching exchange rate', 'error');
+    console.error('Exchange rate error:', error);
+  }
+}
+
+async function loadGroupsForTransaction() {
+  try {
+    const response = await apiRequest('/groups');
+    const groups = await response.json();
+
+    const select = document.getElementById('txnGroup');
+    if (groups && groups.length > 0) {
+      select.innerHTML = '<option value="">Personal Expense</option>' + 
+        groups.map(g => `<option value="${g.group_id}">${g.group_name}</option>`).join('');
+    }
+  } catch (error) {
+    console.error('Error loading groups:', error);
   }
 }
 
@@ -955,7 +1479,10 @@ async function loadGroups() {
             <p class="mb-3 small text-muted">
               Created: ${new Date(group.created_at).toLocaleDateString()}
             </p>
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2 flex-wrap">
+              <button class="btn btn-sm btn-info" onclick="viewGroupDetails(${group.group_id})">
+                <i class="bi bi-eye"></i> View Details
+              </button>
               ${group.is_creator ? `
                 <button class="btn btn-sm btn-primary" onclick="showAddMemberModal(${group.group_id})">
                   <i class="bi bi-person-plus"></i> Add Member
@@ -991,6 +1518,62 @@ async function leaveGroup(groupId) {
     }
   } catch (error) {
     showToast('Error leaving group', 'error');
+  }
+}
+
+async function viewGroupDetails(groupId) {
+  try {
+    // Get group details
+    const groupResponse = await apiRequest(`/groups/${groupId}`);
+    const group = await groupResponse.json();
+    
+    // Get group transactions
+    const txnResponse = await apiRequest(`/transactions?group_id=${groupId}`);
+    const txnData = await txnResponse.json();
+    const transactions = txnData.transactions || [];
+
+    const currency = state.user.base_currency === 'VND' ? '₫' : '$';
+    
+    // Build modal content
+    const membersHtml = group.members.map(m => `
+      <div class="d-flex justify-content-between align-items-center mb-2 p-2 border-bottom">
+        <div>
+          <strong>${m.username}</strong>
+          <small class="text-muted d-block">${m.email}</small>
+        </div>
+        ${m.is_creator ? '<span class="badge bg-primary">Owner</span>' : ''}
+      </div>
+    `).join('');
+
+    const transactionsHtml = transactions.length > 0 ? transactions.map(txn => `
+      <div class="d-flex justify-content-between align-items-center mb-2 p-2 border-bottom">
+        <div>
+          <strong>${txn.description || 'Transaction'}</strong>
+          <small class="text-muted d-block">${new Date(txn.transaction_date).toLocaleDateString()} - ${txn.category_name}</small>
+        </div>
+        <span class="badge bg-${txn.category_type === 'Income' ? 'success' : 'danger'}">
+          ${txn.category_type === 'Income' ? '+' : '-'}${formatCurrency(txn.amount, currency)}
+        </span>
+      </div>
+    `).join('') : '<p class="text-muted text-center py-3">No transactions yet</p>';
+
+    // Calculate split amount per person
+    const memberCount = group.members.length;
+    const splitAmount = memberCount > 0 ? group.total_spent / memberCount : 0;
+
+    // Update modal content
+    document.getElementById('groupDetailsName').textContent = group.group_name;
+    document.getElementById('groupMembersList').innerHTML = membersHtml;
+    document.getElementById('groupTransactionsList').innerHTML = transactionsHtml;
+    document.getElementById('groupTotalSpent').textContent = formatCurrency(group.total_spent, currency);
+    document.getElementById('groupSplitAmount').textContent = formatCurrency(splitAmount, currency);
+    document.getElementById('groupMemberCount').textContent = memberCount;
+
+    // Show modal
+    new bootstrap.Modal(document.getElementById('groupDetailsModal')).show();
+  } catch (error) {
+    showToast('Error loading group details', 'error');
+    console.error('Group details error:', error);
   }
 }
 
@@ -1033,9 +1616,9 @@ async function loadRecurringPayments() {
                 ${statusBadge}
               </div>
               <p class="mb-2"><strong>${formatCurrency(payment.amount, currency)}</strong> / ${payment.frequency}</p>
-              <p class="mb-1 small"><i class="bi bi-wallet"></i> ${payment.account_name}</p>
+              <p class="mb-2 small"><i class="bi bi-wallet"></i> ${payment.account_name}</p>
               <p class="mb-2 small"><i class="bi bi-calendar-event"></i> Next due: ${payment.next_due_date} ${dueBadge}</p>
-              <div class="d-flex gap-2">
+              <div class="d-flex gap-2 flex-wrap">
                 ${payment.is_active ? `
                   <button class="btn btn-sm btn-success" onclick="executeRecurring(${payment.recurring_id})">
                     <i class="bi bi-check-circle"></i> Execute
@@ -1048,6 +1631,9 @@ async function loadRecurringPayments() {
                     <i class="bi bi-play"></i> Activate
                   </button>
                 `}
+                <button class="btn btn-sm btn-secondary" onclick="editRecurring(${payment.recurring_id})">
+                  <i class="bi bi-pencil"></i>
+                </button>
                 <button class="btn btn-sm btn-danger" onclick="deleteRecurring(${payment.recurring_id})">
                   <i class="bi bi-trash"></i>
                 </button>
@@ -1106,3 +1692,82 @@ async function deleteRecurring(recurringId) {
     showToast('Error deleting payment', 'error');
   }
 }
+
+async function editRecurring(recurringId) {
+  try {
+    const response = await apiRequest(`/recurring/${recurringId}`);
+    const payment = await response.json();
+
+    // Load accounts and categories first
+    const accountsResponse = await apiRequest('/accounts');
+    const accountsData = await accountsResponse.json();
+    const accounts = accountsData.accounts || accountsData;
+    
+    const categoriesResponse = await apiRequest('/categories');
+    const categoriesData = await categoriesResponse.json();
+    const categories = categoriesData.categories || categoriesData;
+
+    // Populate account dropdown
+    const accountSelect = document.getElementById('editRecurringAccount');
+    accountSelect.innerHTML = accounts
+      .map(a => `<option value="${a.account_id}" ${a.account_id === payment.account_id ? 'selected' : ''}>${a.account_name} (${a.account_type})</option>`)
+      .join('');
+
+    // Populate category dropdown
+    const categorySelect = document.getElementById('editRecurringCategory');
+    categorySelect.innerHTML = categories
+      .filter(c => c.type === 'Expense')
+      .map(c => `<option value="${c.category_id}" ${c.category_id === payment.category_id ? 'selected' : ''}>${c.category_name}</option>`)
+      .join('');
+
+    // Populate other fields
+    document.getElementById('editRecurringId').value = payment.recurring_id;
+    document.getElementById('editRecurringAmount').value = payment.amount;
+    document.getElementById('editRecurringFrequency').value = payment.frequency;
+    document.getElementById('editRecurringStartDate').value = payment.start_date;
+
+    // Show modal
+    new bootstrap.Modal(document.getElementById('editRecurringModal')).show();
+  } catch (error) {
+    showToast('Error loading recurring payment', 'error');
+    console.error('Edit recurring error:', error);
+  }
+}
+
+async function handleEditRecurring(e) {
+  e.preventDefault();
+
+  const amount = parseFloat(document.getElementById('editRecurringAmount').value);
+  if (isNaN(amount) || amount <= 0) {
+    showToast('Please enter a valid amount', 'error');
+    return;
+  }
+
+  const recurringId = document.getElementById('editRecurringId').value;
+  const data = {
+    account_id: parseInt(document.getElementById('editRecurringAccount').value),
+    category_id: parseInt(document.getElementById('editRecurringCategory').value),
+    amount: amount,
+    frequency: document.getElementById('editRecurringFrequency').value,
+    start_date: document.getElementById('editRecurringStartDate').value
+  };
+
+  try {
+    const response = await apiRequest(`/recurring/${recurringId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+
+    if (response.ok) {
+      showToast('Recurring payment updated successfully');
+      bootstrap.Modal.getInstance(document.getElementById('editRecurringModal')).hide();
+      loadRecurringPayments();
+    } else {
+      const error = await response.json();
+      showToast(error.error || 'Failed to update recurring payment', 'error');
+    }
+  } catch (error) {
+    showToast('Error updating recurring payment', 'error');
+  }
+}
+
