@@ -1,5 +1,30 @@
-// MoneyMinder Frontend Application
+// MoneyMinder Frontend Application v1.1 - Fixed timezone and group calculations
 const API_URL = 'http://localhost:5000/api';
+
+// Helper function to fetch time from server
+async function getServerTime() {
+  try {
+    const response = await apiRequest('/time/current');
+    if (response.ok) {
+      const data = await response.json();
+      return data; // Returns {datetime_local, mysql_format, timestamp, iso}
+    }
+  } catch (error) {
+    console.error('Failed to fetch server time:', error);
+  }
+  // Fallback to local browser time if server request fails
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  return {
+    datetime_local: `${year}-${month}-${day}T${hours}:${minutes}`,
+    mysql_format: `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+  };
+}
 
 // State Management
 const state = {
@@ -75,6 +100,7 @@ function setupEventListeners() {
   document.getElementById('addRecurringForm')?.addEventListener('submit', handleAddRecurring);
   document.getElementById('editRecurringForm')?.addEventListener('submit', handleEditRecurring);
   document.getElementById('applyFilters')?.addEventListener('click', loadTransactions);
+  document.getElementById('applyRecurringSort')?.addEventListener('click', loadRecurringPayments);
   
   // Load groups when transaction modal opens
   const txnModal = document.getElementById('addTransactionModal');
@@ -90,8 +116,47 @@ function setupEventListeners() {
   
   // Toggle currency fields
   document.getElementById('txnForeignCurrency')?.addEventListener('change', function(e) {
-    document.getElementById('currencyFields').style.display = e.target.checked ? 'block' : 'none';
+    const currencyFields = document.getElementById('currencyFields');
+    const amountField = document.getElementById('txnAmount');
+    
+    currencyFields.style.display = e.target.checked ? 'block' : 'none';
+    
+    if (e.target.checked) {
+      // When foreign currency is enabled, amount is auto-calculated so not required for manual entry
+      amountField.required = false;
+      // Clear foreign currency fields
+      document.getElementById('txnOriginalAmount').value = '';
+      document.getElementById('txnExchangeRate').value = '';
+      amountField.value = '';
+    } else {
+      // When foreign currency is disabled, amount must be entered manually
+      amountField.required = true;
+      // Clear foreign currency fields
+      document.getElementById('txnOriginalAmount').value = '';
+      document.getElementById('txnExchangeRate').value = '';
+    }
   });
+  
+  // Auto-calculate base amount when foreign amount or exchange rate changes
+  const autoCalculateAmount = () => {
+    const foreignAmountInput = document.getElementById('txnOriginalAmount');
+    const exchangeRateInput = document.getElementById('txnExchangeRate');
+    const amountInput = document.getElementById('txnAmount');
+    
+    // Only auto-calculate if both fields have non-empty values
+    if (foreignAmountInput.value && exchangeRateInput.value) {
+      const foreignAmount = parseFloat(foreignAmountInput.value);
+      const exchangeRate = parseFloat(exchangeRateInput.value);
+      
+      if (!isNaN(foreignAmount) && !isNaN(exchangeRate) && exchangeRate > 0) {
+        const baseAmount = foreignAmount * exchangeRate;
+        amountInput.value = baseAmount.toFixed(2);
+      }
+    }
+  };
+  
+  document.getElementById('txnOriginalAmount')?.addEventListener('input', autoCalculateAmount);
+  document.getElementById('txnExchangeRate')?.addEventListener('input', autoCalculateAmount);
   
   // Toggle custom category field
   document.getElementById('txnCategory')?.addEventListener('change', function(e) {
@@ -102,11 +167,107 @@ function setupEventListeners() {
     }
   });
   
+  // Update categories when type changes
+  document.getElementById('txnType')?.addEventListener('change', function(e) {
+    if (state.categories && state.categories.length > 0) {
+      updateCategoryDropdown();
+    }
+  });
+  
   document.getElementById('editTxnCategory')?.addEventListener('change', function(e) {
     const customField = document.getElementById('editCustomCategoryField');
     if (customField) {
       customField.style.display = e.target.value === 'other' ? 'block' : 'none';
       document.getElementById('editTxnCustomCategory').required = e.target.value === 'other';
+    }
+  });
+  
+  // Update categories when edit type changes
+  document.getElementById('editTxnType')?.addEventListener('change', function(e) {
+    if (state.categories && state.categories.length > 0) {
+      const categorySelect = document.getElementById('editTxnCategory');
+      const selectedType = e.target.value;
+      
+      categorySelect.innerHTML = state.categories
+        .filter(c => c.type === selectedType)
+        .map(c => `<option value="${c.category_id}">${c.category_name}</option>`)
+        .join('');
+      
+      categorySelect.innerHTML += '<option value="other">Other (Custom)</option>';
+    }
+  });
+  
+  // Toggle edit foreign currency fields
+  document.getElementById('editTxnForeignCurrency')?.addEventListener('change', function(e) {
+    const currencyFields = document.getElementById('editCurrencyFields');
+    const amountField = document.getElementById('editTxnAmount');
+    
+    currencyFields.style.display = e.target.checked ? 'block' : 'none';
+    
+    if (e.target.checked) {
+      amountField.required = false;
+    } else {
+      amountField.required = true;
+      document.getElementById('editTxnOriginalAmount').value = '';
+      document.getElementById('editTxnExchangeRate').value = '';
+    }
+  });
+  
+  // Auto-calculate for edit modal
+  const autoCalculateEditAmount = () => {
+    const foreignAmountInput = document.getElementById('editTxnOriginalAmount');
+    const exchangeRateInput = document.getElementById('editTxnExchangeRate');
+    const amountInput = document.getElementById('editTxnAmount');
+    
+    if (foreignAmountInput.value && exchangeRateInput.value) {
+      const foreignAmount = parseFloat(foreignAmountInput.value);
+      const exchangeRate = parseFloat(exchangeRateInput.value);
+      
+      if (!isNaN(foreignAmount) && !isNaN(exchangeRate) && exchangeRate > 0) {
+        const baseAmount = foreignAmount * exchangeRate;
+        amountInput.value = baseAmount.toFixed(2);
+      }
+    }
+  };
+  
+  document.getElementById('editTxnOriginalAmount')?.addEventListener('input', autoCalculateEditAmount);
+  document.getElementById('editTxnExchangeRate')?.addEventListener('input', autoCalculateEditAmount);
+  
+  // Fetch exchange rate for edit modal
+  document.getElementById('editFetchExchangeRate')?.addEventListener('click', async function() {
+    const currencyCode = document.getElementById('editTxnCurrencyCode').value;
+    const baseCurrency = state.user.base_currency || 'VND';
+    
+    if (!currencyCode) {
+      showToast('Please select a currency first', 'error');
+      return;
+    }
+
+    try {
+      const apiKey = '5d716195b0e393f93ac3bfe6';
+      const response = await fetch(`https://v6.exchangerate-api.com/v6/${apiKey}/latest/${currencyCode}`);
+      const data = await response.json();
+
+      if (data.result === 'success') {
+        const rate = data.conversion_rates[baseCurrency];
+        if (rate) {
+          document.getElementById('editTxnExchangeRate').value = rate.toFixed(4);
+          
+          const foreignAmount = parseFloat(document.getElementById('editTxnOriginalAmount').value);
+          if (!isNaN(foreignAmount)) {
+            document.getElementById('editTxnAmount').value = (foreignAmount * rate).toFixed(2);
+          }
+          
+          showToast(`Exchange rate updated: 1 ${currencyCode} = ${rate.toFixed(4)} ${baseCurrency}`, 'success');
+        } else {
+          showToast(`Exchange rate for ${baseCurrency} not available`, 'error');
+        }
+      } else {
+        showToast('Failed to fetch exchange rate', 'error');
+      }
+    } catch (error) {
+      showToast('Error fetching exchange rate', 'error');
+      console.error('Exchange rate error:', error);
     }
   });
   
@@ -206,6 +367,11 @@ function showMainApp() {
   document.getElementById('registerPage').style.display = 'none';
   document.getElementById('mainApp').style.display = 'block';
   document.getElementById('userDisplay').textContent = state.user.username;
+  
+  // Initialize notifications
+  setTimeout(() => {
+    initNotifications();
+  }, 100);
 }
 
 function navigateToPage(pageName) {
@@ -278,32 +444,45 @@ async function loadDashboard() {
     const data = await response.json();
 
     if (response.ok) {
-      // Update summary cards
+      // Update summary cards with safe defaults
       const currency = state.user.base_currency === 'VND' ? '₫' : '$';
-      document.getElementById('totalBalance').textContent = formatCurrency(data.accounts.balance, currency);
-      document.getElementById('monthIncome').textContent = formatCurrency(data.current_month.income, currency);
-      document.getElementById('monthExpense').textContent = formatCurrency(data.current_month.expense, currency);
-      document.getElementById('netBalance').textContent = formatCurrency(data.current_month.net, currency);
+      document.getElementById('totalBalance').textContent = formatCurrency(data.accounts?.balance || 0, currency);
+      document.getElementById('monthIncome').textContent = formatCurrency(data.current_month?.income || 0, currency);
+      document.getElementById('monthExpense').textContent = formatCurrency(Math.abs(data.current_month?.expense || 0), currency);
+      document.getElementById('netBalance').textContent = formatCurrency(data.current_month?.net || 0, currency);
 
       // Update recent transactions
       const tbody = document.querySelector('#recentTransactionsTable tbody');
-      tbody.innerHTML = '';
+      if (tbody) {
+        tbody.innerHTML = '';
 
-      data.recent_transactions.forEach(txn => {
-        const row = tbody.insertRow();
-        row.innerHTML = `
+        const transactions = data.recent_transactions || [];
+        transactions.forEach(txn => {
+          const row = tbody.insertRow();
+          row.innerHTML = `
                     <td>${formatDate(txn.transaction_date)}</td>
                     <td>${txn.description || '-'}</td>
                     <td><span class="badge bg-${txn.category_type === 'Income' ? 'success' : 'danger'}">${txn.category_name}</span></td>
                     <td>${txn.account_name}</td>
-                    <td class="txn-${txn.category_type.toLowerCase()}">${txn.category_type === 'Income' ? '+' : '-'}${formatCurrency(txn.amount, currency)}</td>
+                    <td class="txn-${txn.category_type.toLowerCase()}">${txn.category_type === 'Income' ? '+' : '-'}${formatCurrency(Math.abs(txn.amount), currency)}</td>
                 `;
-      });
+        });
+      }
     }
   } catch (error) {
-    showToast('Error loading dashboard', 'error');
     console.error('Dashboard error:', error);
+    // Set defaults on error
+    const currency = state.user?.base_currency === 'VND' ? '₫' : '$';
+    document.getElementById('totalBalance').textContent = formatCurrency(0, currency);
+    document.getElementById('monthIncome').textContent = formatCurrency(0, currency);
+    document.getElementById('monthExpense').textContent = formatCurrency(0, currency);
+    document.getElementById('netBalance').textContent = formatCurrency(0, currency);
   }
+  
+  // Initialize charts after dashboard data is loaded
+  setTimeout(() => {
+    initCharts();
+  }, 500);
 }
 
 // Transaction Functions
@@ -374,7 +553,7 @@ function displayTransactions(transactions) {
     let compareValue = 0;
     
     if (state.sortBy === 'date') {
-      compareValue = new Date(a.transaction_date) - new Date(b.transaction_date);
+      compareValue = parseLocalMySQLDate(a.transaction_date) - parseLocalMySQLDate(b.transaction_date);
     } else if (state.sortBy === 'amount') {
       compareValue = parseFloat(a.amount) - parseFloat(b.amount);
     }
@@ -405,11 +584,35 @@ function displayTransactions(transactions) {
 async function handleAddTransaction(e) {
   e.preventDefault();
 
-  // Validate amount
-  const amount = parseFloat(document.getElementById('txnAmount').value);
-  if (isNaN(amount) || amount <= 0) {
-    showToast('Please enter a valid positive amount', 'error');
-    return;
+  // Check if foreign currency is used
+  const isForeign = document.getElementById('txnForeignCurrency').checked;
+  
+  let amount;
+  if (isForeign) {
+    // For foreign currency, calculate the amount from foreign amount and exchange rate
+    const foreignAmount = parseFloat(document.getElementById('txnOriginalAmount').value);
+    const exchangeRate = parseFloat(document.getElementById('txnExchangeRate').value);
+    
+    if (!foreignAmount || isNaN(foreignAmount) || foreignAmount === 0) {
+      showToast('Please enter a valid foreign amount (negative for expenses)', 'error');
+      return;
+    }
+    if (!exchangeRate || isNaN(exchangeRate) || exchangeRate <= 0) {
+      showToast('Please enter a valid exchange rate', 'error');
+      return;
+    }
+    
+    // Calculate the base amount
+    amount = foreignAmount * exchangeRate;
+    // Update the amount field for display
+    document.getElementById('txnAmount').value = amount.toFixed(2);
+  } else {
+    // For regular transactions, get the amount directly
+    amount = parseFloat(document.getElementById('txnAmount').value);
+    if (isNaN(amount) || amount === 0) {
+      showToast('Please enter a valid amount (use negative for expenses)', 'error');
+      return;
+    }
   }
 
   let categoryId = document.getElementById('txnCategory').value;
@@ -422,13 +625,16 @@ async function handleAddTransaction(e) {
       return;
     }
     
+    // Get selected type
+    const selectedType = document.getElementById('txnType').value;
+    
     // Create new category first
     try {
       const catResponse = await apiRequest('/categories', {
         method: 'POST',
         body: JSON.stringify({
           category_name: customCategoryName,
-          type: 'Expense'
+          type: selectedType
         })
       });
       
@@ -445,11 +651,15 @@ async function handleAddTransaction(e) {
     }
   }
 
+  // Use browser local time directly without conversion
+  const localDatetime = document.getElementById('txnDate').value; // YYYY-MM-DDTHH:mm
+  const mysqlFormat = localDatetime.replace('T', ' ') + ':00'; // YYYY-MM-DD HH:mm:ss
+  
   const transactionData = {
     account_id: parseInt(document.getElementById('txnAccount').value),
     category_id: parseInt(categoryId),
     amount: amount,
-    transaction_date: document.getElementById('txnDate').value,
+    transaction_date: mysqlFormat,
     description: document.getElementById('txnDescription').value
   };
 
@@ -460,26 +670,14 @@ async function handleAddTransaction(e) {
   }
 
   // Add multi-currency fields if foreign currency is enabled
-  const isForeign = document.getElementById('txnForeignCurrency').checked;
   if (isForeign) {
     const originalAmount = parseFloat(document.getElementById('txnOriginalAmount').value);
     const currencyCode = document.getElementById('txnCurrencyCode').value;
     const exchangeRate = parseFloat(document.getElementById('txnExchangeRate').value);
     
-    if (!originalAmount || isNaN(originalAmount) || originalAmount <= 0) {
-      showToast('Please enter a valid original amount', 'error');
-      return;
-    }
-    if (!exchangeRate || isNaN(exchangeRate) || exchangeRate <= 0) {
-      showToast('Please enter a valid exchange rate', 'error');
-      return;
-    }
-    
     transactionData.original_amount = originalAmount;
     transactionData.currency_code = currencyCode;
     transactionData.exchange_rate = exchangeRate;
-    // Recalculate amount based on exchange rate
-    transactionData.amount = originalAmount * exchangeRate;
   }
 
   try {
@@ -549,14 +747,20 @@ async function editTransaction(transactionId) {
     
     const transaction = data.transaction; // Backend returns {transaction: {...}}
 
-    // Load accounts and categories
+    // Load accounts, categories, and groups
     const accountsResponse = await apiRequest('/accounts');
     const accountsData = await accountsResponse.json();
-    const accounts = accountsData.accounts || accountsData; // Handle both formats
+    const accounts = accountsData.accounts || accountsData;
     
     const categoriesResponse = await apiRequest('/categories');
     const categoriesData = await categoriesResponse.json();
-    const categories = categoriesData.categories || categoriesData; // Handle both formats
+    const categories = categoriesData.categories || categoriesData;
+    
+    const groupsResponse = await apiRequest('/groups');
+    const groups = await groupsResponse.json();
+
+    // Store categories for filtering
+    state.categories = categories;
 
     // Populate account dropdown
     const accountSelect = document.getElementById('editTxnAccount');
@@ -564,20 +768,58 @@ async function editTransaction(transactionId) {
       .map(a => `<option value="${a.account_id}" ${a.account_id === transaction.account_id ? 'selected' : ''}>${a.account_name} (${a.account_type})</option>`)
       .join('');
 
-    // Populate category dropdown
+    // Find transaction's category type
+    const txnCategory = categories.find(c => c.category_id === transaction.category_id);
+    const txnType = txnCategory ? txnCategory.type : 'Expense';
+    
+    // Set type dropdown
+    document.getElementById('editTxnType').value = txnType;
+    
+    // Filter and populate category dropdown
     const categorySelect = document.getElementById('editTxnCategory');
     categorySelect.innerHTML = categories
-      .map(c => `<option value="${c.category_id}" ${c.category_id === transaction.category_id ? 'selected' : ''}>${c.category_name} (${c.type})</option>`)
+      .filter(c => c.type === txnType)
+      .map(c => `<option value="${c.category_id}" ${c.category_id === transaction.category_id ? 'selected' : ''}>${c.category_name}</option>`)
       .join('');
     
     // Add "Other" option
     categorySelect.innerHTML += '<option value="other">Other (Custom)</option>';
+    
+    // Populate group dropdown
+    const groupSelect = document.getElementById('editTxnGroup');
+    if (groups && groups.length > 0) {
+      groupSelect.innerHTML = '<option value="">None (Personal)</option>' +
+        groups.map(g => `<option value="${g.group_id}" ${g.group_id === transaction.group_id ? 'selected' : ''}>${g.group_name}</option>`).join('');
+    } else {
+      groupSelect.innerHTML = '<option value="">None (Personal)</option>';
+    }
 
     // Populate other fields
     document.getElementById('editTxnId').value = transaction.transaction_id;
     document.getElementById('editTxnAmount').value = transaction.amount;
-    document.getElementById('editTxnDate').value = transaction.transaction_date.substring(0, 16); // Format for datetime-local
+    // Set to current local time instead of previous time
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    document.getElementById('editTxnDate').value = `${year}-${month}-${day}T${hours}:${minutes}`;
     document.getElementById('editTxnDescription').value = transaction.description || '';
+    
+    // Handle foreign currency fields
+    const isForeign = transaction.original_amount && transaction.currency_code && transaction.currency_code !== 'VND';
+    document.getElementById('editTxnForeignCurrency').checked = isForeign;
+    document.getElementById('editCurrencyFields').style.display = isForeign ? 'block' : 'none';
+    
+    if (isForeign) {
+      document.getElementById('editTxnOriginalAmount').value = transaction.original_amount;
+      document.getElementById('editTxnCurrencyCode').value = transaction.currency_code;
+      document.getElementById('editTxnExchangeRate').value = transaction.exchange_rate;
+      document.getElementById('editTxnAmount').required = false;
+    } else {
+      document.getElementById('editTxnAmount').required = true;
+    }
 
     // Show modal
     new bootstrap.Modal(document.getElementById('editTransactionModal')).show();
@@ -591,11 +833,33 @@ async function handleEditTransaction(e) {
   e.preventDefault();
 
   const transactionId = document.getElementById('editTxnId').value;
-  const amount = parseFloat(document.getElementById('editTxnAmount').value);
   
-  if (isNaN(amount) || amount <= 0) {
-    showToast('Please enter a valid positive amount', 'error');
-    return;
+  // Check if foreign currency is used
+  const isForeign = document.getElementById('editTxnForeignCurrency').checked;
+  
+  let amount;
+  if (isForeign) {
+    // For foreign currency, calculate the amount
+    const foreignAmount = parseFloat(document.getElementById('editTxnOriginalAmount').value);
+    const exchangeRate = parseFloat(document.getElementById('editTxnExchangeRate').value);
+    
+    if (!foreignAmount || isNaN(foreignAmount) || foreignAmount === 0) {
+      showToast('Please enter a valid foreign amount (negative for expenses)', 'error');
+      return;
+    }
+    if (!exchangeRate || isNaN(exchangeRate) || exchangeRate <= 0) {
+      showToast('Please enter a valid exchange rate', 'error');
+      return;
+    }
+    
+    amount = foreignAmount * exchangeRate;
+    document.getElementById('editTxnAmount').value = amount.toFixed(2);
+  } else {
+    amount = parseFloat(document.getElementById('editTxnAmount').value);
+    if (isNaN(amount) || amount === 0) {
+      showToast('Please enter a valid amount (use negative for expenses)', 'error');
+      return;
+    }
   }
 
   let categoryId = document.getElementById('editTxnCategory').value;
@@ -608,13 +872,14 @@ async function handleEditTransaction(e) {
       return;
     }
     
-    // Create new category first
+    const selectedType = document.getElementById('editTxnType').value;
+    
     try {
       const catResponse = await apiRequest('/categories', {
         method: 'POST',
         body: JSON.stringify({
           category_name: customCategoryName,
-          type: 'Expense'
+          type: selectedType
         })
       });
       
@@ -635,9 +900,22 @@ async function handleEditTransaction(e) {
     account_id: parseInt(document.getElementById('editTxnAccount').value),
     category_id: parseInt(categoryId),
     amount: amount,
-    transaction_date: document.getElementById('editTxnDate').value,
+    transaction_date: document.getElementById('editTxnDate').value + ':00',
     description: document.getElementById('editTxnDescription').value
   };
+  
+  // Add group if selected
+  const groupId = document.getElementById('editTxnGroup').value;
+  if (groupId) {
+    transactionData.group_id = parseInt(groupId);
+  }
+
+  // Add multi-currency fields
+  if (isForeign) {
+    transactionData.original_amount = parseFloat(document.getElementById('editTxnOriginalAmount').value);
+    transactionData.currency_code = document.getElementById('editTxnCurrencyCode').value;
+    transactionData.exchange_rate = parseFloat(document.getElementById('editTxnExchangeRate').value);
+  }
 
   try {
     const response = await apiRequest(`/transactions/${transactionId}`, {
@@ -878,22 +1156,32 @@ async function loadCategoriesForModal() {
 
   if (response.ok) {
     state.categories = data.categories;
-    const select = document.getElementById('txnCategory');
-    select.innerHTML = '';
-
-    data.categories.forEach(cat => {
-      const option = document.createElement('option');
-      option.value = cat.category_id;
-      option.textContent = `${cat.category_name} (${cat.type})`;
-      select.appendChild(option);
-    });
-    
-    // Add "Other" option at the end
-    const otherOption = document.createElement('option');
-    otherOption.value = 'other';
-    otherOption.textContent = 'Other (Custom)';
-    select.appendChild(otherOption);
+    updateCategoryDropdown();
   }
+}
+
+function updateCategoryDropdown() {
+  const select = document.getElementById('txnCategory');
+  const typeSelect = document.getElementById('txnType');
+  const selectedType = typeSelect ? typeSelect.value : 'Expense';
+  
+  select.innerHTML = '';
+
+  // Filter categories by selected type
+  const filteredCategories = state.categories.filter(cat => cat.type === selectedType);
+  
+  filteredCategories.forEach(cat => {
+    const option = document.createElement('option');
+    option.value = cat.category_id;
+    option.textContent = cat.category_name;
+    select.appendChild(option);
+  });
+  
+  // Add "Other" option at the end
+  const otherOption = document.createElement('option');
+  otherOption.value = 'other';
+  otherOption.textContent = 'Other (Custom)';
+  select.appendChild(otherOption);
 }
 
 async function loadAccountsForModal() {
@@ -914,14 +1202,34 @@ async function loadAccountsForModal() {
 }
 
 // Load data when modal is shown
-document.getElementById('addTransactionModal')?.addEventListener('show.bs.modal', () => {
+document.getElementById('addTransactionModal')?.addEventListener('show.bs.modal', async () => {
   loadAccountsForModal();
+  
+  // Set default type to Expense
+  const typeSelect = document.getElementById('txnType');
+  if (typeSelect) {
+    typeSelect.value = 'Expense';
+  }
+  
+  // Load and filter categories
   loadCategoriesForModal();
 
-  // Set default date to now
+  // Set default date to browser's local current time
   const now = new Date();
-  const dateString = now.toISOString().slice(0, 16);
-  document.getElementById('txnDate').value = dateString;
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  document.getElementById('txnDate').value = `${year}-${month}-${day}T${hours}:${minutes}`;
+  
+  // Reset foreign currency checkbox and fields
+  const foreignCheckbox = document.getElementById('txnForeignCurrency');
+  if (foreignCheckbox) {
+    foreignCheckbox.checked = false;
+    document.getElementById('currencyFields').style.display = 'none';
+    document.getElementById('txnAmount').required = true;
+  }
 });
 
 function formatCurrency(amount, symbol = '₫') {
@@ -932,8 +1240,18 @@ function formatCurrency(amount, symbol = '₫') {
   return symbol + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function parseLocalMySQLDate(dateString) {
+  // dateString expected in 'YYYY-MM-DD HH:mm:ss' or 'YYYY-MM-DDTHH:mm' format
+  if (!dateString) return new Date();
+  const s = dateString.replace('T', ' ').trim();
+  const [datePart, timePart] = s.split(' ');
+  const [y, m, d] = datePart.split('-').map(Number);
+  const [hh, mm, ss] = (timePart || '00:00:00').split(':').map(Number);
+  return new Date(y, m - 1, d, hh || 0, mm || 0, ss || 0);
+}
+
 function formatDate(dateString) {
-  const date = new Date(dateString);
+  const date = parseLocalMySQLDate(dateString);
   return date.toLocaleDateString('en-GB', {
     year: 'numeric',
     month: '2-digit',
@@ -1414,6 +1732,13 @@ async function fetchExchangeRate() {
       const rate = data.conversion_rates[baseCurrency];
       if (rate) {
         document.getElementById('txnExchangeRate').value = rate.toFixed(4);
+        
+        // Trigger auto-calculation of base amount
+        const foreignAmount = parseFloat(document.getElementById('txnOriginalAmount').value);
+        if (!isNaN(foreignAmount)) {
+          document.getElementById('txnAmount').value = (foreignAmount * rate).toFixed(2);
+        }
+        
         showToast(`Exchange rate updated: 1 ${currencyCode} = ${rate.toFixed(4)} ${baseCurrency}`, 'success');
       } else {
         showToast(`Exchange rate for ${baseCurrency} not available`, 'error');
@@ -1434,8 +1759,10 @@ async function loadGroupsForTransaction() {
 
     const select = document.getElementById('txnGroup');
     if (groups && groups.length > 0) {
-      select.innerHTML = '<option value="">Personal Expense</option>' + 
+      select.innerHTML = '<option value="">None (Personal)</option>' + 
         groups.map(g => `<option value="${g.group_id}">${g.group_name}</option>`).join('');
+    } else {
+      select.innerHTML = '<option value="">None (Personal)</option>';
     }
   } catch (error) {
     console.error('Error loading groups:', error);
@@ -1525,17 +1852,15 @@ async function viewGroupDetails(groupId) {
   try {
     // Get group details
     const groupResponse = await apiRequest(`/groups/${groupId}`);
-    const group = await groupResponse.json();
-    
-    // Get group transactions
-    const txnResponse = await apiRequest(`/transactions?group_id=${groupId}`);
-    const txnData = await txnResponse.json();
-    const transactions = txnData.transactions || [];
+    const data = await groupResponse.json();
+    const group = data.group || {};
+    const members = data.members || [];
+    const transactions = data.recent_transactions || [];
 
     const currency = state.user.base_currency === 'VND' ? '₫' : '$';
     
     // Build modal content
-    const membersHtml = group.members.map(m => `
+    const membersHtml = members.map(m => `
       <div class="d-flex justify-content-between align-items-center mb-2 p-2 border-bottom">
         <div>
           <strong>${m.username}</strong>
@@ -1549,7 +1874,7 @@ async function viewGroupDetails(groupId) {
       <div class="d-flex justify-content-between align-items-center mb-2 p-2 border-bottom">
         <div>
           <strong>${txn.description || 'Transaction'}</strong>
-          <small class="text-muted d-block">${new Date(txn.transaction_date).toLocaleDateString()} - ${txn.category_name}</small>
+          <small class="text-muted d-block">${parseLocalMySQLDate(txn.transaction_date).toLocaleDateString()} - ${txn.category_name}</small>
         </div>
         <span class="badge bg-${txn.category_type === 'Income' ? 'success' : 'danger'}">
           ${txn.category_type === 'Income' ? '+' : '-'}${formatCurrency(txn.amount, currency)}
@@ -1558,14 +1883,14 @@ async function viewGroupDetails(groupId) {
     `).join('') : '<p class="text-muted text-center py-3">No transactions yet</p>';
 
     // Calculate split amount per person
-    const memberCount = group.members.length;
-    const splitAmount = memberCount > 0 ? group.total_spent / memberCount : 0;
+    const memberCount = members.length;
+    const splitAmount = memberCount > 0 ? (group.total_spent || 0) / memberCount : 0;
 
     // Update modal content
-    document.getElementById('groupDetailsName').textContent = group.group_name;
+    document.getElementById('groupDetailsName').textContent = group.group_name || data.group_name || 'Group';
     document.getElementById('groupMembersList').innerHTML = membersHtml;
     document.getElementById('groupTransactionsList').innerHTML = transactionsHtml;
-    document.getElementById('groupTotalSpent').textContent = formatCurrency(group.total_spent, currency);
+    document.getElementById('groupTotalSpent').textContent = formatCurrency(group.total_spent || 0, currency);
     document.getElementById('groupSplitAmount').textContent = formatCurrency(splitAmount, currency);
     document.getElementById('groupMemberCount').textContent = memberCount;
 
@@ -1582,7 +1907,11 @@ async function viewGroupDetails(groupId) {
 // ============================================
 async function loadRecurringPayments() {
   try {
-    const response = await apiRequest('/recurring');
+    // Get sort parameters
+    const sortBy = document.getElementById('recurringSortBy')?.value || 'next_due_date';
+    const sortOrder = document.getElementById('recurringSortOrder')?.value || 'asc';
+    
+    const response = await apiRequest(`/recurring?sort_by=${sortBy}&sort_order=${sortOrder}`);
     const payments = await response.json();
 
     const container = document.getElementById('recurringContainer');
@@ -1653,7 +1982,20 @@ async function executeRecurring(recurringId) {
   if (!confirm('Execute this recurring payment now?')) return;
 
   try {
-    const response = await apiRequest(`/recurring/${recurringId}/execute`, { method: 'POST' });
+    // Use browser local time directly without conversion
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    const localDatetime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+    
+    const response = await apiRequest(`/recurring/${recurringId}/execute`, { 
+      method: 'POST',
+      body: JSON.stringify({ transaction_datetime: localDatetime })
+    });
     if (response.ok) {
       showToast('Payment executed successfully');
       loadRecurringPayments();
@@ -1769,5 +2111,303 @@ async function handleEditRecurring(e) {
   } catch (error) {
     showToast('Error updating recurring payment', 'error');
   }
+}
+
+// ============================================
+// Notifications
+// ============================================
+
+let notificationInterval = null;
+let monthlyTrendChart = null;
+let yearlySummaryChart = null;
+
+// Initialize notification system
+function initNotifications() {
+  const notificationBtn = document.getElementById('notificationBtn');
+  const notificationDropdown = document.getElementById('notificationDropdown');
+  const markAllReadBtn = document.getElementById('markAllReadBtn');
+
+  // Toggle dropdown
+  notificationBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isVisible = notificationDropdown.style.display === 'block';
+    notificationDropdown.style.display = isVisible ? 'none' : 'block';
+    if (!isVisible) {
+      loadNotifications();
+    }
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.notification-wrapper')) {
+      notificationDropdown.style.display = 'none';
+    }
+  });
+
+  // Mark all as read
+  markAllReadBtn?.addEventListener('click', async () => {
+    try {
+      const response = await apiRequest('/notifications/read-all', {
+        method: 'PUT'
+      });
+      if (response.ok) {
+        loadNotifications();
+        loadNotificationSummary();
+      }
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+    }
+  });
+
+  // Load initial data
+  loadNotificationSummary();
+
+  // Poll for new notifications every 30 seconds
+  notificationInterval = setInterval(loadNotificationSummary, 30000);
+}
+
+async function loadNotificationSummary() {
+  try {
+    const response = await apiRequest('/notifications/summary');
+    if (response.ok) {
+      const data = await response.json();
+      const badge = document.getElementById('notificationBadge');
+      const totalUnread = data.total_unread || 0;
+      
+      if (totalUnread > 0) {
+        badge.textContent = totalUnread > 99 ? '99+' : totalUnread;
+        badge.style.display = 'block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  } catch (error) {
+    console.error('Error loading notification summary:', error);
+  }
+}
+
+async function loadNotifications() {
+  try {
+    const response = await apiRequest('/notifications');
+    if (response.ok) {
+      const data = await response.json();
+      const notifications = data.notifications || [];
+      
+      const notificationList = document.getElementById('notificationList');
+      if (notifications.length === 0) {
+        notificationList.innerHTML = `
+          <div class="text-center py-3 text-muted">
+            <i class="bi bi-bell-slash"></i>
+            <p class="mb-0 mt-2 small">No notifications</p>
+          </div>
+        `;
+        return;
+      }
+
+      notificationList.innerHTML = notifications.map(notif => {
+        const icon = getNotificationIcon(notif.type, notif.severity);
+        const timeAgo = formatTimeAgo(notif.created_at);
+        const unreadClass = notif.is_read ? '' : 'unread';
+        
+        return `
+          <div class="notification-item ${unreadClass} d-flex" data-id="${notif.notification_id}">
+            <div class="notification-icon ${notif.severity}">
+              <i class="bi bi-${icon}"></i>
+            </div>
+            <div class="notification-content">
+              <div class="notification-title">${notif.title}</div>
+              <div class="notification-message">${notif.message}</div>
+              <div class="notification-time">${timeAgo}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Add click handlers to mark as read
+      notificationList.querySelectorAll('.notification-item').forEach(item => {
+        item.addEventListener('click', async () => {
+          const id = item.dataset.id;
+          if (item.classList.contains('unread')) {
+            try {
+              const response = await apiRequest(`/notifications/${id}/read`, {
+                method: 'PUT'
+              });
+              if (response.ok) {
+                item.classList.remove('unread');
+                loadNotificationSummary();
+              }
+            } catch (error) {
+              console.error('Error marking notification as read:', error);
+            }
+          }
+        });
+      });
+    }
+  } catch (error) {
+    console.error('Error loading notifications:', error);
+  }
+}
+
+function getNotificationIcon(type, severity) {
+  const icons = {
+    'upcoming_bill': 'calendar-event',
+    'unusual_spending': 'exclamation-triangle',
+    'budget_alert': 'piggy-bank'
+  };
+  return icons[type] || 'bell';
+}
+
+function formatTimeAgo(timestamp) {
+  const now = new Date();
+  const time = new Date(timestamp);
+  const diff = Math.floor((now - time) / 1000); // seconds
+
+  if (diff < 60) return 'Just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  return time.toLocaleDateString();
+}
+
+// ============================================
+// Charts
+// ============================================
+
+async function initCharts() {
+  await loadMonthlyTrendChart();
+  await loadYearlySummaryChart();
+  populateYearSelector();
+}
+
+async function loadMonthlyTrendChart() {
+  try {
+    const response = await apiRequest('/analytics/monthly-trend?months=6');
+    if (response.ok) {
+      const data = await response.json();
+      
+      const ctx = document.getElementById('monthlyTrendChart');
+      if (!ctx) return;
+
+      // Destroy existing chart
+      if (monthlyTrendChart) {
+        monthlyTrendChart.destroy();
+      }
+
+      monthlyTrendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.labels,
+          datasets: data.datasets.map(ds => ({
+            ...ds,
+            tension: 0.4,
+            fill: false,
+            borderWidth: 2,
+            pointRadius: 4,
+            pointHoverRadius: 6
+          }))
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: {
+              position: 'top',
+            },
+            title: {
+              display: false
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                callback: function(value) {
+                  return formatCurrency(value);
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error loading monthly trend chart:', error);
+  }
+}
+
+async function loadYearlySummaryChart(year = null) {
+  try {
+    if (!year) {
+      year = new Date().getFullYear();
+    }
+    
+    const response = await apiRequest(`/analytics/yearly-summary?year=${year}`);
+    if (response.ok) {
+      const data = await response.json();
+      
+      const ctx = document.getElementById('yearlySummaryChart');
+      if (!ctx) return;
+
+      // Destroy existing chart
+      if (yearlySummaryChart) {
+        yearlySummaryChart.destroy();
+      }
+
+      yearlySummaryChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: data.labels,
+          datasets: data.datasets.map(ds => ({
+            ...ds,
+            borderWidth: 1,
+            borderRadius: 4
+          }))
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: {
+              position: 'top',
+            },
+            title: {
+              display: false
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                callback: function(value) {
+                  return formatCurrency(value);
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error loading yearly summary chart:', error);
+  }
+}
+
+function populateYearSelector() {
+  const selector = document.getElementById('yearSelector');
+  if (!selector) return;
+
+  const currentYear = new Date().getFullYear();
+  const years = [];
+  for (let i = 0; i < 5; i++) {
+    years.push(currentYear - i);
+  }
+
+  selector.innerHTML = years.map(year => 
+    `<option value="${year}" ${year === currentYear ? 'selected' : ''}>${year}</option>`
+  ).join('');
+
+  selector.addEventListener('change', (e) => {
+    loadYearlySummaryChart(parseInt(e.target.value));
+  });
 }
 

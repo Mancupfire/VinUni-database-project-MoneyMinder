@@ -13,18 +13,29 @@ recurring_bp = Blueprint('recurring', __name__, url_prefix='/api/recurring')
 def get_recurring_payments():
     """Get all recurring payments for current user"""
     try:
-        query = """
+        # Get sorting parameters
+        sort_by = request.args.get('sort_by', 'next_due_date')  # date, amount
+        sort_order = request.args.get('sort_order', 'asc')  # asc, desc
+        
+        # Validate sort parameters
+        valid_sort_by = {'next_due_date': 'r.next_due_date', 'amount': 'r.amount'}
+        valid_sort_order = {'asc': 'ASC', 'desc': 'DESC'}
+        
+        order_column = valid_sort_by.get(sort_by, 'r.next_due_date')
+        order_direction = valid_sort_order.get(sort_order, 'ASC')
+        
+        query = f"""
             SELECT 
                 r.recurring_id, r.amount, r.frequency,
                 r.start_date, r.next_due_date, r.is_active,
                 r.account_id, a.account_name,
                 r.category_id, c.category_name,
-                DATEDIFF(r.next_due_date, CURDATE()) as days_until_due
+                DATEDIFF(r.next_due_date, DATE(NOW())) as days_until_due
             FROM Recurring_Payments r
             JOIN Accounts a ON r.account_id = a.account_id
             JOIN Categories c ON r.category_id = c.category_id
             WHERE r.user_id = %s
-            ORDER BY r.next_due_date, r.is_active DESC
+            ORDER BY {order_column} {order_direction}, r.is_active DESC
         """
         
         payments = Database.execute_query(query, (request.user_id,), fetch_all=True)
@@ -257,9 +268,13 @@ def execute_recurring_payment(recurring_id):
         if not payment['is_active']:
             return jsonify({'error': 'Recurring payment is not active'}), 400
         
-        # Call stored procedure
-        query = "CALL SP_Create_Recurring_Transaction(%s)"
-        Database.execute_query(query, (recurring_id,), commit=True)
+        # Get transaction datetime from request body (GMT+7 time from frontend)
+        data = request.get_json() or {}
+        transaction_datetime = data.get('transaction_datetime')
+        
+        # Call stored procedure with datetime parameter
+        query = "CALL SP_Create_Recurring_Transaction(%s, %s)"
+        Database.execute_query(query, (recurring_id, transaction_datetime), commit=True)
         
         return jsonify({
             'message': 'Recurring payment executed successfully',
@@ -287,6 +302,31 @@ def get_due_payments():
             AND r.is_active = TRUE
             AND r.next_due_date <= CURDATE()
             ORDER BY r.next_due_date
+        """
+        
+        payments = Database.execute_query(query, (request.user_id,), fetch_all=True)
+        
+        for payment in payments:
+            payment['amount'] = float(payment['amount'])
+            payment['next_due_date'] = payment['next_due_date'].strftime('%Y-%m-%d')
+        
+        return jsonify(payments), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+@recurring_bp.route('/upcoming', methods=['GET'])
+@require_auth
+def get_upcoming_payments():
+    """Get upcoming recurring payments using View_Upcoming_Recurring_Payments"""
+    try:
+        query = """
+            SELECT 
+                recurring_id, amount, frequency, next_due_date,
+                account_id, account_name, category_id, category_name,
+                description, days_until_due, due_status, urgency_level
+            FROM View_Upcoming_Recurring_Payments
+            WHERE user_id = %s
+            ORDER BY next_due_date ASC
         """
         
         payments = Database.execute_query(query, (request.user_id,), fetch_all=True)
